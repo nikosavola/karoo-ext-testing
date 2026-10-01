@@ -13,6 +13,7 @@ import io.hammerhead.karooext.models.KarooEventParams
 import io.hammerhead.karooext.models.KarooInfo
 import io.hammerhead.karooext.models.OnHttpResponse
 import io.hammerhead.karooext.models.OnLocationChanged
+import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.RideState
 import io.hammerhead.karooext.models.TurnScreenOn
 import io.hammerhead.karooext.models.UserProfile
@@ -73,6 +74,33 @@ class FakeKarooSystemTest {
       "sample-value",
       page.events<ActiveRidePage>().single().page.elements.single().dataTypeId,
     )
+  }
+
+  @Test
+  fun `setRoute publishes a navigating route with its own length`() {
+    val system = FakeKarooSystem()
+    val handler = CapturingHandler()
+    system.add("nav", OnNavigationState.Params, handler)
+    val points = listOf(60.0 to 24.0, 60.01 to 24.0, 60.01 to 24.01)
+    system.setRoute(points, name = "Loop")
+    // The sticky Idle arrives first, then the route.
+    val route = handler.events<OnNavigationState>().last().state
+    assertTrue(route is OnNavigationState.NavigationState.NavigatingRoute)
+    route as OnNavigationState.NavigationState.NavigatingRoute
+    assertEquals("Loop", route.name)
+    // 0.01 deg of latitude plus 0.01 deg of longitude at 60 deg, within rounding.
+    assertEquals(1_667.9, route.routeDistance, 2.0)
+    assertTrue(route.routePolyline.isNotEmpty())
+  }
+
+  @Test
+  fun `a set route is sticky for a late consumer`() {
+    val system = FakeKarooSystem()
+    system.setRoute(listOf(60.0 to 24.0, 60.0 to 24.01), name = "Out and back")
+    val handler = CapturingHandler()
+    system.add("late", OnNavigationState.Params, handler)
+    val route = handler.events<OnNavigationState>().single().state
+    assertTrue(route is OnNavigationState.NavigationState.NavigatingRoute)
   }
 
   @Test

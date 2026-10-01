@@ -121,6 +121,31 @@ class FakeKarooSystem(
     publish(OnNavigationState.Params, event)
   }
 
+  /**
+   * Navigates [points] (lat to lng) as the active route, the way the ride app follows a planned
+   * one; distance along the polyline unless [routeDistanceMeters] says otherwise.
+   */
+  fun setRoute(
+    points: List<Pair<Double, Double>>,
+    name: String = "Test route",
+    routeDistanceMeters: Double = polylineLengthMeters(points),
+  ) {
+    setNavigation(
+      OnNavigationState.NavigationState.NavigatingRoute(
+        routePolyline = encodePolyline(points),
+        routeDistance = routeDistanceMeters,
+        routeElevationPolyline = "",
+        rejoinPolyline = "",
+        rejoinDistance = null,
+        name = name,
+        reversed = false,
+        breadcrumb = false,
+        pois = emptyList(),
+        climbs = emptyList(),
+      )
+    )
+  }
+
   fun setRideState(state: RideState) {
     rideState = state
     publish(RideState.Params, state)
