@@ -1,0 +1,27 @@
+[versions]
+agp = "9.4.1"
+# Keep in sync with the kotlin-gradle-plugin literal in the root build.gradle.kts.
+kotlin = "2.4.20"
+karoo-ext = "1.1.9"
+serialization-json = "1.11.0"
+junit = "4.13.2"
+robolectric = "4.17"
+androidx-test-core = "1.7.0"
+ktfmt = "0.27.0"
+ktlint = "14.2.0"
+detekt = "2.0.0-alpha.6"
+
+[libraries]
+karoo-ext = { group = "com.github.hammerheadnav", name = "karoo-ext", version.ref = "karoo-ext" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization-json" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidx-test-core" }
+
+[plugins]
+android-library = { id = "com.android.library", version.ref = "agp" }
+# Unversioned: the root buildscript classpath already pins the Kotlin Gradle plugin.
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ktfmt = { id = "com.ncorti.ktfmt.gradle", version.ref = "ktfmt" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }

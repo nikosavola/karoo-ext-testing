@@ -1,0 +1,89 @@
+# Run with prek (https://prek.j178.dev). Hooks sharing a priority run concurrently; formatters
+# (10) finish before validators (20) start.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        priority: 10
+      - id: end-of-file-fixer
+        priority: 10
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: ^gradlew\.bat$
+        priority: 10
+      - id: check-merge-conflict
+        priority: 20
+      - id: check-added-large-files
+        priority: 20
+      - id: check-xml
+        priority: 20
+      - id: check-toml
+        priority: 20
+      - id: check-json
+        priority: 20
+      - id: check-case-conflict
+        priority: 20
+      - id: detect-private-key
+        priority: 20
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        priority: 20
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.50.3
+    hooks:
+      - id: typos
+        priority: 20
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.23.2
+    hooks:
+      - id: markdownlint-cli2
+        args: [--config, .github/.markdownlint-cli2.jsonc]
+        priority: 20
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.21.0
+    hooks:
+      - id: yamlfmt
+        args: [-conf, .github/.yamlfmt.yaml]
+        priority: 10
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: [--strict, -c=.github/.yamllint.yaml]
+        priority: 20
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        priority: 20
+  - repo: https://github.com/woodruffw/zizmor-pre-commit
+    rev: v1.28.0
+    hooks:
+      - id: zizmor
+        priority: 20
+  - repo: local
+    hooks:
+      - id: just-format
+        name: justfile format
+        entry: just --fmt --unstable
+        language: system
+        files: ^justfile$
+        pass_filenames: false
+        priority: 10
+      - id: kotlin-format
+        name: Kotlin format (ktfmt, ktlint)
+        entry: ./gradlew formatAll --no-daemon -q
+        language: system
+        files: \.kts?$
+        pass_filenames: false
+        priority: 10
+      - id: kotlin-lint
+        name: Kotlin lint (ktfmt, ktlint, detekt, Android Lint)
+        entry: ./gradlew lintAll --no-daemon -q
+        language: system
+        files: (\.kts?|\.xml|\.toml)$
+        pass_filenames: false
+        priority: 20

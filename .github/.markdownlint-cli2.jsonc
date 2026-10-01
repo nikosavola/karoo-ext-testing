@@ -1,0 +1,10 @@
+{
+  "config": {
+    "default": true,
+    // Prose paragraphs are not hard-wrapped.
+    "MD013": false,
+    "MD060": false,
+    // The README gallery needs an HTML table to size the screenshots.
+    "MD033": { "allowed_elements": ["table", "tr", "td", "img", "br"] }
+  }
+}

@@ -1,0 +1,49 @@
+root = true
+
+# ktlint reads this file; ktfmt (googleStyle, set in build.gradle.kts) does not, so the values
+# below just mirror it to keep editors agreeing with the formatter. detekt uses
+# config/detekt/detekt.yml.
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+indent_size = 2
+max_line_length = 100
+# ktfmt owns layout. Any ktlint rule that moves code across lines must be off, otherwise it
+# rewraps lines that nothing then reindents and the mangled result still passes ktlintCheck.
+ktlint_standard_indent = disabled
+ktlint_standard_wrapping = disabled
+ktlint_standard_max-line-length = disabled
+ktlint_standard_argument-list-wrapping = disabled
+ktlint_standard_parameter-list-wrapping = disabled
+ktlint_standard_multiline-expression-wrapping = disabled
+ktlint_standard_chain-method-continuation = disabled
+ktlint_standard_class-signature = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_function-expression-body = disabled
+ktlint_standard_function-literal = disabled
+ktlint_standard_string-template-indent = disabled
+ktlint_standard_trailing-comma-on-call-site = disabled
+ktlint_standard_trailing-comma-on-declaration-site = disabled
+ktlint_standard_spacing-between-declarations-with-comments = disabled
+ktlint_standard_when-entry-bracing = disabled
+ktlint_standard_blank-line-between-when-conditions = disabled
+# ktfmt sorts imports lexicographically; ktlint wants java.* last.
+ktlint_standard_import-ordering = disabled
+ktlint_standard_annotation = disabled
+
+[*.{yml,yaml,toml,json,jsonc}]
+indent_size = 2
+
+[*.xml]
+indent_size = 4
+
+[{justfile,*.just}]
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false

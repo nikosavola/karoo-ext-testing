@@ -1,0 +1,31 @@
+# allRules = true is set in the root build.gradle.kts. Only rules that conflict with a deliberate
+# choice in this project are turned off here, each added because detekt actually flagged it.
+comments:
+  active: true
+  UndocumentedPublicClass:
+    active: false
+  UndocumentedPublicFunction:
+    active: false
+  UndocumentedPublicProperty:
+    active: false
+naming:
+  active: true
+  # Composables are PascalCase.
+  FunctionNaming:
+    active: true
+    functionPattern: '[a-zA-Z][a-zA-Z0-9]*'
+  # Backtick sentence-style test names.
+  FunctionNameMaxLength:
+    active: false
+style:
+  active: true
+  MultilineRawStringIndentation:
+    active: false
+  # Road class codes (12111) and projected coordinates (6672118.38) are read as identifiers and
+  # are compared against MML docs; 12_111 or 6_672_118.38 only makes that harder.
+  UnderscoresInNumericLiterals:
+    active: false
+  # Tests assemble JSON fixtures with interpolation, where escaped quotes read better.
+  StringShouldBeRawString:
+    active: true
+    excludes: ['**/test/**']
