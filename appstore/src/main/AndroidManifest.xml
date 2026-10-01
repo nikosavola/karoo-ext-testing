@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Bridged requests may reach a real endpoint when a test uses LiveResponder. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <queries>
+        <intent>
+            <action android:name="io.hammerhead.karooext.KAROO_EXTENSION" />
+        </intent>
+    </queries>
+
+    <application>
+        <service
+            android:name="io.hammerhead.appstore.service.AppStoreService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="KarooSystem" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>
