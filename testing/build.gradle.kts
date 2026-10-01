@@ -35,16 +35,3 @@ dependencies {
   // extension through them.
   testImplementation(project(":robolectric"))
 }
-
-afterEvaluate {
-  publishing {
-    publications {
-      create<MavenPublication>("release") {
-        from(components["release"])
-        groupId = "com.github.nikosavola.karoo-ext-testing"
-        artifactId = "karoo-ext-testing"
-        version = providers.gradleProperty("VERSION_NAME").get()
-      }
-    }
-  }
-}

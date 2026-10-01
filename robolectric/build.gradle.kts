@@ -33,16 +33,3 @@ dependencies {
   testImplementation(libs.androidx.test.core)
   testImplementation(libs.karoo.ext)
 }
-
-afterEvaluate {
-  publishing {
-    publications {
-      create<MavenPublication>("release") {
-        from(components["release"])
-        groupId = "com.github.nikosavola.karoo-ext-testing"
-        artifactId = "karoo-ext-testing-robolectric"
-        version = providers.gradleProperty("VERSION_NAME").get()
-      }
-    }
-  }
-}

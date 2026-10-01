@@ -52,6 +52,62 @@ subprojects {
   tasks.withType<dev.detekt.gradle.Detekt> { setSource(fileTree("src") { include("**/*.kt") }) }
 }
 
+// One set of coordinates for JitPack and GitHub Packages, so consumers only swap the repository.
+val publishGroup = "com.github.nikosavola.karoo-ext-testing"
+// CI and jitpack.yml pass the tag as VERSION_NAME; gradle.properties holds the local default.
+val publishVersion = providers.gradleProperty("VERSION_NAME")
+val repoSlug =
+  providers.environmentVariable("GITHUB_REPOSITORY").orElse("nikosavola/karoo-ext-testing")
+// Overridable so the publish step can be rehearsed against a local directory.
+val githubPackagesUrl =
+  providers
+    .gradleProperty("githubPackagesUrl")
+    .orElse(repoSlug.map { "https://maven.pkg.github.com/$it" })
+
+subprojects {
+  // Inside the publication, `name` would be the publication's ("release"), not the module's.
+  val artifact = if (name == "testing") rootProject.name else "${rootProject.name}-$name"
+  plugins.withId("maven-publish") {
+    // AGP creates components["release"] late, so the publication has to wait for it.
+    afterEvaluate {
+      configure<PublishingExtension> {
+        publications {
+          create<MavenPublication>("release") {
+            from(components["release"])
+            groupId = publishGroup
+            artifactId = artifact
+            version = publishVersion.get()
+            pom {
+              name.set(artifactId)
+              description.set("Test doubles for the Karoo system side of Hammerhead's karoo-ext")
+              url.set("https://github.com/nikosavola/karoo-ext-testing")
+              licenses {
+                license {
+                  name.set("Apache License 2.0")
+                  url.set("https://www.apache.org/licenses/LICENSE-2.0")
+                }
+              }
+              scm { url.set("https://github.com/nikosavola/karoo-ext-testing") }
+            }
+          }
+        }
+        repositories {
+          maven {
+            name = "GitHubPackages"
+            url = uri(githubPackagesUrl.get())
+            if (url.scheme == "https") {
+              credentials {
+                username = providers.environmentVariable("GITHUB_ACTOR").orNull
+                password = providers.environmentVariable("GITHUB_TOKEN").orNull
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 tasks.register("formatAll") {
   group = "formatting"
   description = "Auto-format all Kotlin sources with ktfmt and ktlint"

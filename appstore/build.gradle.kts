@@ -22,16 +22,3 @@ dependencies {
   compileOnly(libs.karoo.ext)
   implementation(project(":testing"))
 }
-
-afterEvaluate {
-  publishing {
-    publications {
-      create<MavenPublication>("release") {
-        from(components["release"])
-        groupId = "com.github.nikosavola.karoo-ext-testing"
-        artifactId = "karoo-ext-testing-appstore"
-        version = providers.gradleProperty("VERSION_NAME").get()
-      }
-    }
-  }
-}

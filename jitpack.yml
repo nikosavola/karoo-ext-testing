@@ -1,0 +1,5 @@
+jdk:
+  - openjdk21
+install:
+  # JitPack's VERSION is the tag (or commit) being built.
+  - ./gradlew publishToMavenLocal -x test -PVERSION_NAME=$VERSION
