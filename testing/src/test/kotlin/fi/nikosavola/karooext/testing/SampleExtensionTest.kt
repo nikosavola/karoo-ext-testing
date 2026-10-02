@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import fi.nikosavola.karooext.testing.robolectric.FakeKarooRule
 import io.hammerhead.karooext.models.BatteryStatus
 import io.hammerhead.karooext.models.ConnectionStatus
+import io.hammerhead.karooext.models.DataPoint
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.OnBatteryStatus
 import io.hammerhead.karooext.models.OnConnectionStatus
@@ -96,7 +97,7 @@ class SampleExtensionTest {
   fun `power type reads built-in power and recovers after a loss`() {
     val stream = karoo.host<SampleExtension>().startStream(SAMPLE_POWER_TYPE)
     stream.await(SAMPLE_AWAIT_MS) { it is StreamState.Searching }
-    karoo.system.setDataPoint(DataType.Type.POWER, 250.0)
+    karoo.system.setDataPoint(DataPoint(DataType.Type.POWER, mapOf(DataType.Field.POWER to 250.0)))
     val first =
       stream.await(SAMPLE_AWAIT_MS) { it is StreamState.Streaming } as StreamState.Streaming
     assertEquals(250.0, first.dataPoint.values.getValue(DataType.Field.SINGLE), 0.0)
@@ -105,7 +106,7 @@ class SampleExtensionTest {
     // recover to Streaming rather than getting stuck.
     karoo.system.setStreamState(DataType.Type.POWER, StreamState.NotAvailable)
     stream.await(SAMPLE_AWAIT_MS, after = 2) { it is StreamState.Searching }
-    karoo.system.setDataPoint(DataType.Type.POWER, 300.0)
+    karoo.system.setDataPoint(DataPoint(DataType.Type.POWER, mapOf(DataType.Field.POWER to 300.0)))
     val second =
       stream.await(SAMPLE_AWAIT_MS) { state ->
         state is StreamState.Streaming && state.dataPoint.values[DataType.Field.SINGLE] == 300.0
@@ -118,7 +119,7 @@ class SampleExtensionTest {
     val host = karoo.host<SampleExtension>()
     val before = karoo.system.consumerCount
     val stream = host.startStream(SAMPLE_POWER_TYPE)
-    karoo.system.setDataPoint(DataType.Type.POWER, 100.0)
+    karoo.system.setDataPoint(DataPoint(DataType.Type.POWER, mapOf(DataType.Field.POWER to 100.0)))
     stream.await(SAMPLE_AWAIT_MS) { it is StreamState.Streaming }
     assertTrue(karoo.system.consumerCount > before)
     host.stopStream(stream)

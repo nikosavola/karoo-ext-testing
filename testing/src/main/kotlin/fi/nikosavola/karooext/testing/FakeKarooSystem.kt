@@ -2,6 +2,7 @@ package fi.nikosavola.karooext.testing
 
 import android.os.Bundle
 import android.os.RemoteException
+import io.hammerhead.karooext.EXT_LIB_VERSION
 import io.hammerhead.karooext.aidl.IHandler
 import io.hammerhead.karooext.aidl.IKarooSystem
 import io.hammerhead.karooext.internal.bundleWithSerializable
@@ -33,7 +34,6 @@ import kotlin.concurrent.withLock
 const val KAROO_SYSTEM_PACKAGE = "io.hammerhead.appstore"
 const val KAROO_SYSTEM_SERVICE = "io.hammerhead.appstore.service.AppStoreService"
 
-private const val LIB_VERSION = "1.1.9"
 private const val BRIDGE_MAX_BODY = 100_000
 private const val DEFAULT_HTTP_THREADS = 1
 private const val FULL_GRID = 60
@@ -47,12 +47,15 @@ private const val SERIAL = "fake"
  * active page and stream state are replayed too because extension tests rely on it. [reset] clears
  * every stored value.
  *
- * HTTP is answered on [httpThreads] (one by default, so responses land in request order). The
- * responder and body limit are captured when a request is registered, so changing either later does
- * not affect a request already in flight. [reset] and [removeEventConsumer] invalidate in-flight
- * requests and [close] is terminal. Registration, cancellation and delivery share one lock, so a
- * cancel that returns before a delivery starts prevents it, but a delivery already inside a handler
- * completes.
+ * HTTP is answered on `httpThreads` (one by default, so responses land in request order; it must be
+ * positive). The responder and body limit are captured when a request is registered, so changing
+ * either later does not affect a request already in flight. [reset] and [removeEventConsumer]
+ * invalidate in-flight requests and [close] is terminal. Registration, cancellation and delivery
+ * share one lock, so a cancel that returns before a delivery starts prevents it, but a delivery
+ * already inside a handler completes.
+ *
+ * [completeConsumer] and [errorConsumer] drive an ordinary consumer's terminal callbacks for tests
+ * that need the real SDK's auto-unregister path; they are a raw hook, not a device guarantee.
  *
  * Suppressing TooManyFunctions: it implements the whole IKarooSystem AIDL surface plus a setter per
  * sticky event.
@@ -63,7 +66,16 @@ class FakeKarooSystem(
   maxBodyBytes: Int = BRIDGE_MAX_BODY,
   httpThreads: Int = DEFAULT_HTTP_THREADS,
   @Volatile var hardwareType: HardwareType = HardwareType.KAROO,
+  /**
+   * Version `libVersion` reports, for simulating a system older or newer than the SDK this fake is
+   * built against. The default is karoo-ext's EXT_LIB_VERSION, which is a compile-time constant
+   * inlined into this class: it is the SDK version the fake was built against, not the version on a
+   * consumer's runtime classpath.
+   */
+  libVersion: String = EXT_LIB_VERSION,
 ) : IKarooSystem.Stub(), Closeable {
+  private val reportedLibVersion = libVersion
+
   private class Consumer(val params: KarooEventParams, val handler: IHandler)
 
   /**
@@ -95,6 +107,8 @@ class FakeKarooSystem(
     // executor below is created, so a bad limit cannot leak a thread pool from a failed
     // constructor.
     require(this.maxBodyBytes >= 0) { "maxBodyBytes must not be negative" }
+    // Checked here rather than left to the executor, which throws a bare IllegalArgumentException.
+    require(httpThreads > 0) { "httpThreads must be positive, was $httpThreads" }
   }
 
   private val http = Executors.newFixedThreadPool(httpThreads)
@@ -131,6 +145,10 @@ class FakeKarooSystem(
   val consumerParams: List<KarooEventParams>
     get() = consumers.values.map { it.params }
 
+  /** Registered ordinary consumer ids, e.g. to drive a terminal callback on one. */
+  val consumerIds: List<String>
+    get() = consumers.keys.toList()
+
   /** HTTP requests registered but not yet answered or cancelled. */
   val pendingHttpCount: Int
     get() = pendingHttp.size
@@ -139,7 +157,7 @@ class FakeKarooSystem(
   val streams: Map<String, StreamState>
     get() = streamStates.toMap()
 
-  override fun libVersion(): String = LIB_VERSION
+  override fun libVersion(): String = reportedLibVersion
 
   override fun info(): Bundle =
     KarooInfo(SERIAL, hardwareType).bundleWithSerializable(KAROO_SYSTEM_PACKAGE)
@@ -178,6 +196,41 @@ class FakeKarooSystem(
       pendingHttp.remove(id)
     }
   }
+
+  /**
+   * Ends [id]'s ordinary consumer like the system completing a stream: invokes the handler's
+   * `onComplete` without removing it first, so the SDK's wrapper is the one that unregisters. This
+   * is a raw handler hook for driving the SDK's auto-unregister contract, not a device guarantee
+   * that the system ever completes a consumer.
+   *
+   * Returns whether an ordinary consumer with [id] was registered. Pending HTTP consumers are out
+   * of scope and report `false`. To stop a raw handler that does not unregister itself from
+   * leaking, the consumer is removed by identity after the callback; a reentrant replacement
+   * registered under the same id during the callback is a different instance and is preserved.
+   */
+  fun completeConsumer(id: String): Boolean = injectTerminal(id) { it.onComplete() }
+
+  /**
+   * Ends [id]'s ordinary consumer like the system failing a stream, passing [message]. Semantics
+   * match [completeConsumer], including the `false` return when [id] is unknown.
+   */
+  fun errorConsumer(id: String, message: String): Boolean =
+    injectTerminal(id) { it.onError(message) }
+
+  private fun injectTerminal(id: String, terminal: (IHandler) -> Unit): Boolean =
+    lifecycleLock.withLock {
+      if (closed) return false
+      val consumer = consumers[id] ?: return false
+      try {
+        terminal(consumer.handler)
+      } catch (_: RemoteException) {
+        // The consumer's process went away; the real Karoo drops such consumers too. The identity
+        // removal below still runs.
+      } finally {
+        consumers.remove(id, consumer)
+      }
+      true
+    }
 
   fun setLocation(lat: Double, lng: Double, orientation: Double? = null) {
     val event = OnLocationChanged(lat, lng, orientation)
@@ -326,37 +379,46 @@ class FakeKarooSystem(
 
   @Suppress("TooGenericExceptionCaught")
   private fun serve(id: String, pending: PendingHttp) {
-    val started = lifecycleLock.withLock {
-      if (!isActive(id, pending)) {
-        false
-      } else {
-        // InProgress goes out first, so a throwing responder still looks like a started request.
-        send(pending.handler, OnHttpResponse(HttpResponseState.InProgress))
-        true
-      }
-    }
-    // A dead handler makes send drop the request, so do not run the responder for a gone consumer.
-    if (!started || !lifecycleLock.withLock { isActive(id, pending) }) return
-    val complete =
-      try {
-        val response = pending.responder.respond(pending.request)
-        val body = response.body
-        if (body != null && body.size > pending.maxBodyBytes) {
-          HttpResponseState.Complete(0, emptyMap(), null, "Response too large: ${body.size}")
+    try {
+      val started = lifecycleLock.withLock {
+        if (!isActive(id, pending)) {
+          false
         } else {
-          response
+          // InProgress goes out first, so a throwing responder still looks like a started request.
+          send(pending.handler, OnHttpResponse(HttpResponseState.InProgress))
+          true
         }
-      } catch (e: Exception) {
-        // Any responder failure must become a transport status, and its message may carry the URL.
-        HttpResponseState.Complete(0, emptyMap(), null, e.javaClass.name)
       }
-    lifecycleLock.withLock {
-      if (isActive(id, pending)) {
-        // Deliver before removing: a handler that cancels, resets or re-registers this id reenters
-        // the lock, and the identity check then preserves whatever it put in the map.
-        send(pending.handler, OnHttpResponse(complete))
-        pendingHttp.remove(id, pending)
+      // A dead handler makes send drop the request, so do not run the responder for a gone
+      // consumer.
+      if (!started || !lifecycleLock.withLock { isActive(id, pending) }) return
+      val complete =
+        try {
+          val response = pending.responder.respond(pending.request)
+          val body = response.body
+          if (body != null && body.size > pending.maxBodyBytes) {
+            HttpResponseState.Complete(0, emptyMap(), null, "Response too large: ${body.size}")
+          } else {
+            response
+          }
+        } catch (e: Exception) {
+          // Any responder failure must become a transport status, and its message may carry the
+          // URL.
+          HttpResponseState.Complete(0, emptyMap(), null, e.javaClass.name)
+        }
+      lifecycleLock.withLock {
+        if (isActive(id, pending)) {
+          // Deliver before removing: a handler that cancels, resets or re-registers this id
+          // reenters the lock, and the identity check then preserves whatever it put in the map.
+          send(pending.handler, OnHttpResponse(complete))
+        }
       }
+    } finally {
+      // Always identity-remove, so a consumer callback that throws cannot wedge the queue: without
+      // this the entry stays pending forever and later waits hang. A reentrant replacement under
+      // the same id is a different instance and is left in place. A callback exception is not
+      // converted into a response; it propagates to the executor after this cleanup.
+      pendingHttp.remove(id, pending)
     }
   }
 

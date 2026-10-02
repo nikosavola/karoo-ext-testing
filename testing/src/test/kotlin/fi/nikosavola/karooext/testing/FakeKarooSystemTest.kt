@@ -2,6 +2,7 @@ package fi.nikosavola.karooext.testing
 
 import android.os.Bundle
 import android.os.RemoteException
+import io.hammerhead.karooext.EXT_LIB_VERSION
 import io.hammerhead.karooext.aidl.IHandler
 import io.hammerhead.karooext.internal.bundleWithSerializable
 import io.hammerhead.karooext.internal.serializableFromBundle
@@ -18,7 +19,9 @@ import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.RideState
 import io.hammerhead.karooext.models.TurnScreenOn
 import io.hammerhead.karooext.models.UserProfile
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -433,6 +436,230 @@ class FakeKarooSystemTest {
     awaitValue(AWAIT_MS) { system.pendingHttpCount.takeIf { it == 0 } }
     assertEquals(1, delivered.get())
   }
+
+  @Test
+  fun `libVersion reports the SDK constant and can be overridden`() {
+    assertEquals(EXT_LIB_VERSION, track(FakeKarooSystem()).libVersion())
+    assertEquals("9.9.9", track(FakeKarooSystem(libVersion = "9.9.9")).libVersion())
+  }
+
+  @Test
+  fun `httpThreads must be positive`() {
+    assertThrows(IllegalArgumentException::class.java) { FakeKarooSystem(httpThreads = 0) }
+    assertThrows(IllegalArgumentException::class.java) { FakeKarooSystem(httpThreads = -1) }
+  }
+
+  @Test
+  fun `reset after close does not reopen and double close is harmless`() {
+    val system = track(FakeKarooSystem())
+    system.add("loc", OnLocationChanged.Params, CapturingHandler())
+    system.close()
+    system.close()
+    system.reset()
+    assertEquals(0, system.consumerCount)
+    assertThrows(IllegalStateException::class.java) {
+      system.add("late", OnLocationChanged.Params, CapturingHandler())
+    }
+  }
+
+  @Test
+  fun `an unreadable params bundle reports onError and registers nothing`() {
+    val system = track(FakeKarooSystem())
+    val handler = CapturingHandler()
+    system.addEventConsumer("bad", Bundle(), handler)
+    // Fake policy: the SDK itself would drop-and-log a bad payload.
+    assertEquals(listOf("Unreadable params"), handler.errors.toList())
+    assertEquals(0, system.consumerCount)
+  }
+
+  @Test
+  fun `the exact max body boundary is allowed and zero allows empty or null bodies`() {
+    val atLimit = track(FakeKarooSystem(maxBodyBytes = 4))
+    atLimit.responder = HttpResponses.success("1234".toByteArray())
+    val exact = CapturingHandler()
+    atLimit.add("at", makeRequest(), exact)
+    val exactEvents =
+      awaitValue(AWAIT_MS) { exact.events<OnHttpResponse>().takeIf { it.size >= 2 } }
+    assertEquals(200, (exactEvents[1].state as HttpResponseState.Complete).statusCode)
+
+    val zero = track(FakeKarooSystem(maxBodyBytes = 0))
+    zero.responder = HttpResponses.success(ByteArray(0))
+    val empty = CapturingHandler()
+    zero.add("empty", makeRequest(), empty)
+    val emptyEvents =
+      awaitValue(AWAIT_MS) { empty.events<OnHttpResponse>().takeIf { it.size >= 2 } }
+    assertEquals(200, (emptyEvents[1].state as HttpResponseState.Complete).statusCode)
+
+    zero.responder = HttpResponses.status(204)
+    val noBody = CapturingHandler()
+    zero.add("null", makeRequest(), noBody)
+    val nullEvents =
+      awaitValue(AWAIT_MS) { noBody.events<OnHttpResponse>().takeIf { it.size >= 2 } }
+    assertEquals(204, (nullEvents[1].state as HttpResponseState.Complete).statusCode)
+  }
+
+  @Test
+  fun `responder and body limit are captured at registration`() {
+    val system = track(FakeKarooSystem())
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    system.responder = BlockingResponder(entered, release)
+    val handler = CapturingHandler()
+    system.add("http", makeRequest(), handler)
+    assertTrue(entered.await(5, TimeUnit.SECONDS))
+
+    // Changing either afterwards must not affect the in-flight request.
+    system.responder = HttpResponses.success("changed".toByteArray())
+    system.maxBodyBytes = 1
+    release.countDown()
+    val events = awaitValue(AWAIT_MS) { handler.events<OnHttpResponse>().takeIf { it.size >= 2 } }
+    assertEquals("late", (events[1].state as HttpResponseState.Complete).body!!.decodeToString())
+  }
+
+  @Test
+  fun `a handler throwing during InProgress never runs the responder and drains pending`() {
+    val system = track(FakeKarooSystem())
+    val seen = CopyOnWriteArrayList<Throwable>()
+    val urls = CopyOnWriteArrayList<String>()
+    system.responder = HttpResponder { request ->
+      urls += request.url
+      HttpResponses.success("x".toByteArray()).response
+    }
+    system.add(
+      "http",
+      makeRequest(),
+      ThrowingHandler({ it is HttpResponseState.InProgress }, seen),
+    )
+    awaitValue(AWAIT_MS) { seen.takeIf { it.isNotEmpty() } }
+    awaitValue(AWAIT_MS) { system.pendingHttpCount.takeIf { it == 0 } }
+    assertTrue(urls.isEmpty())
+  }
+
+  @Test
+  fun `a handler throwing during Complete drains pending and the next request still runs`() {
+    val system = track(FakeKarooSystem())
+    val seen = CopyOnWriteArrayList<Throwable>()
+    system.responder = HttpResponses.success("first".toByteArray())
+    system.add(
+      "http",
+      makeRequest("https://example.test/first"),
+      ThrowingHandler({ it is HttpResponseState.Complete }, seen),
+    )
+    awaitValue(AWAIT_MS) { seen.takeIf { it.isNotEmpty() } }
+    awaitValue(AWAIT_MS) { system.pendingHttpCount.takeIf { it == 0 } }
+
+    system.responder = HttpResponses.success("second".toByteArray())
+    val followUp = CapturingHandler()
+    system.add("http2", makeRequest("https://example.test/second"), followUp)
+    val events = awaitValue(AWAIT_MS) { followUp.events<OnHttpResponse>().takeIf { it.size >= 2 } }
+    assertEquals("second", (events[1].state as HttpResponseState.Complete).body!!.decodeToString())
+  }
+
+  @Test
+  fun `a dead handler during InProgress never runs the responder and leaves nothing pending`() {
+    val system = track(FakeKarooSystem())
+    val urls = CopyOnWriteArrayList<String>()
+    system.responder = HttpResponder { request ->
+      urls += request.url
+      HttpResponses.success("x".toByteArray()).response
+    }
+    val dead =
+      object : IHandler.Stub() {
+        override fun onNext(bundle: Bundle): Unit = throw RemoteException()
+
+        override fun onError(message: String?) = Unit
+
+        override fun onComplete() = Unit
+      }
+    system.add("http", makeRequest("https://example.test/dead"), dead)
+    awaitValue(AWAIT_MS) { system.pendingHttpCount.takeIf { it == 0 } }
+    assertTrue(urls.isEmpty())
+  }
+
+  @Test
+  fun `cancelling a queued http request before it runs never invokes its responder`() {
+    val system = track(FakeKarooSystem())
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val urls = CopyOnWriteArrayList<String>()
+    system.responder = UrlRecordingResponder("https://example.test/first", urls, entered, release)
+    system.add("first", makeRequest("https://example.test/first"), CapturingHandler())
+    assertTrue(entered.await(5, TimeUnit.SECONDS))
+
+    system.add("second", makeRequest("https://example.test/second"), CapturingHandler())
+    system.removeEventConsumer("second")
+    release.countDown()
+    awaitValue(AWAIT_MS) { system.pendingHttpCount.takeIf { it == 0 } }
+    assertEquals(listOf("https://example.test/first"), urls.toList())
+  }
+
+  @Test
+  fun `multiple http threads answer distinct requests without cross delivery`() {
+    val system = track(FakeKarooSystem(httpThreads = 2))
+    system.responder = BarrierEchoResponder(CyclicBarrier(2))
+    val first = CapturingHandler()
+    val second = CapturingHandler()
+    system.add("a", makeRequest("https://example.test/a"), first)
+    system.add("b", makeRequest("https://example.test/b"), second)
+    val firstEvents =
+      awaitValue(AWAIT_MS) { first.events<OnHttpResponse>().takeIf { it.size >= 2 } }
+    val secondEvents =
+      awaitValue(AWAIT_MS) { second.events<OnHttpResponse>().takeIf { it.size >= 2 } }
+    assertEquals("a", (firstEvents[1].state as HttpResponseState.Complete).body!!.decodeToString())
+    assertEquals("b", (secondEvents[1].state as HttpResponseState.Complete).body!!.decodeToString())
+    awaitValue(AWAIT_MS) { system.pendingHttpCount.takeIf { it == 0 } }
+  }
+
+  @Test
+  fun `completeConsumer invokes then removes a raw consumer and rejects unknown ids`() {
+    val system = track(FakeKarooSystem())
+    val handler = CapturingHandler()
+    system.add("c", OnLocationChanged.Params, handler)
+    assertTrue(system.completeConsumer("c"))
+    assertTrue(handler.completed)
+    assertEquals(0, system.consumerCount)
+    assertFalse(system.completeConsumer("c"))
+  }
+
+  @Test
+  fun `errorConsumer passes the message then removes a raw consumer`() {
+    val system = track(FakeKarooSystem())
+    val handler = CapturingHandler()
+    system.add("c", OnLocationChanged.Params, handler)
+    assertTrue(system.errorConsumer("c", "system failed"))
+    assertEquals(listOf("system failed"), handler.errors.toList())
+    assertEquals(0, system.consumerCount)
+    assertFalse(system.errorConsumer("c", "again"))
+  }
+
+  @Test
+  fun `terminal injection preserves a replacement registered during the callback`() {
+    val system = track(FakeKarooSystem())
+    val first =
+      object : IHandler.Stub() {
+        override fun onNext(bundle: Bundle) = Unit
+
+        override fun onError(message: String?) = Unit
+
+        override fun onComplete() {
+          system.add("same", RideState.Params, CapturingHandler())
+        }
+      }
+    system.add("same", OnLocationChanged.Params, first)
+    assertTrue(system.completeConsumer("same"))
+    assertEquals(1, system.consumerCount)
+    assertTrue(system.consumerParams.contains(RideState.Params))
+  }
+
+  @Test
+  fun `terminal injection ignores pending http consumers`() {
+    val system = track(FakeKarooSystem())
+    system.responder = HttpResponses.success("x".toByteArray())
+    system.add("http", makeRequest(), CapturingHandler())
+    assertFalse(system.completeConsumer("http"))
+    assertFalse(system.errorConsumer("http", "nope"))
+    awaitValue(AWAIT_MS) { system.pendingHttpCount.takeIf { it == 0 } }
+  }
 }
 
 /** Runs [onResponse] the first time a Complete arrives, to exercise a reentrant callback. */
@@ -484,5 +711,52 @@ private class BlockingResponder(
     entered.countDown()
     release.await(5, TimeUnit.SECONDS)
     return HttpResponses.success("late".toByteArray()).respond(request)
+  }
+}
+
+/**
+ * Records a Throwable locally and then rethrows it, so a test observes the executor's background
+ * failure without a global uncaught-exception handler.
+ */
+private class ThrowingHandler(
+  private val throwOn: (HttpResponseState) -> Boolean,
+  private val seen: CopyOnWriteArrayList<Throwable>,
+) : IHandler.Stub() {
+  override fun onNext(bundle: Bundle) {
+    val state = bundle.serializableFromBundle<OnHttpResponse>()?.state ?: return
+    if (throwOn(state)) {
+      val failure = IllegalStateException("callback threw on $state")
+      seen += failure
+      throw failure
+    }
+  }
+
+  override fun onError(message: String?) = Unit
+
+  override fun onComplete() = Unit
+}
+
+/** Records each request URL, blocking on [blockedUrl] until released. */
+private class UrlRecordingResponder(
+  private val blockedUrl: String,
+  private val urls: CopyOnWriteArrayList<String>,
+  private val entered: CountDownLatch,
+  private val release: CountDownLatch,
+) : HttpResponder {
+  override fun respond(request: OnHttpResponse.MakeHttpRequest): HttpResponseState.Complete {
+    urls += request.url
+    if (request.url == blockedUrl) {
+      entered.countDown()
+      release.await(5, TimeUnit.SECONDS)
+    }
+    return HttpResponses.success("ok".toByteArray()).respond(request)
+  }
+}
+
+/** Waits for [barrier] in respond so two tasks are provably in flight together. */
+private class BarrierEchoResponder(private val barrier: CyclicBarrier) : HttpResponder {
+  override fun respond(request: OnHttpResponse.MakeHttpRequest): HttpResponseState.Complete {
+    barrier.await(5, TimeUnit.SECONDS)
+    return HttpResponses.success(request.url.substringAfterLast('/').toByteArray()).respond(request)
   }
 }

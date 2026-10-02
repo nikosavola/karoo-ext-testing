@@ -13,6 +13,7 @@ android {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
   }
+  testOptions { unitTests { isIncludeAndroidResources = true } }
   publishing { singleVariant("release") { withSourcesJar() } }
 }
 
@@ -21,4 +22,8 @@ kotlin { jvmToolchain(21) }
 dependencies {
   compileOnly(libs.karoo.ext)
   implementation(project(":testing"))
+  testImplementation(libs.junit)
+  testImplementation(libs.robolectric)
+  testImplementation(libs.androidx.test.core)
+  testImplementation(libs.karoo.ext)
 }

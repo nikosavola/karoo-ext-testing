@@ -31,6 +31,7 @@ dependencies {
   testImplementation(libs.robolectric)
   testImplementation(libs.androidx.test.core)
   testImplementation(libs.karoo.ext)
+  testImplementation(libs.kotlinx.serialization.json)
   // The Robolectric binding helpers live in :robolectric, and these tests drive the sample
   // extension through them.
   testImplementation(project(":robolectric"))

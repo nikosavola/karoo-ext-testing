@@ -174,9 +174,7 @@ private class SamplePowerType(private val system: KarooSystemService, extension:
         ->
         when (val state = event.state) {
           is StreamState.Streaming -> {
-            val power =
-              state.dataPoint.values[DataType.Field.POWER]
-                ?: state.dataPoint.values[DataType.Field.SINGLE]
+            val power = state.dataPoint.values[DataType.Field.POWER]
             if (power != null) {
               emitter.onNext(
                 StreamState.Streaming(DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to power)))
