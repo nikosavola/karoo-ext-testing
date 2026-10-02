@@ -35,14 +35,22 @@ fun View.bitmaps(): List<Bitmap> =
     .mapNotNull { (it.drawable as? BitmapDrawable)?.bitmap }
     .toList()
 
-/** Whether any pixel is within [tolerance] per channel of [color]; RGB_565 frames shift colours. */
+/**
+ * Whether any pixel is within [tolerance] per channel of [color]; RGB_565 frames shift colours.
+ * Alpha is ignored, since 565 frames drop it.
+ */
 fun Bitmap.hasColorNear(color: Int, tolerance: Int = 12): Boolean {
+  require(tolerance >= 0) { "tolerance must be nonnegative, was $tolerance" }
   val pixels = IntArray(width * height).also { getPixels(it, 0, width, 0, 0, width, height) }
   return pixels.any { it.isNear(color, tolerance) }
 }
 
-/** Share of pixels near [color], e.g. how much of a map frame is still untiled background. */
+/**
+ * Share of pixels near [color], e.g. how much of a map frame is still untiled background. Alpha is
+ * ignored, since 565 frames drop it.
+ */
 fun Bitmap.fractionNear(color: Int, tolerance: Int = 4): Double {
+  require(tolerance >= 0) { "tolerance must be nonnegative, was $tolerance" }
   val pixels = IntArray(width * height).also { getPixels(it, 0, width, 0, 0, width, height) }
   return pixels.count { it.isNear(color, tolerance) }.toDouble() / pixels.size
 }

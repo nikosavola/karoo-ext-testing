@@ -46,5 +46,6 @@ private fun haversineMeters(from: Pair<Double, Double>, to: Pair<Double, Double>
   val dLat = Math.toRadians(to.first - from.first)
   val dLng = Math.toRadians(to.second - from.second)
   val a = sin(dLat / 2) * sin(dLat / 2) + cos(lat1) * cos(lat2) * sin(dLng / 2) * sin(dLng / 2)
-  return 2 * EARTH_RADIUS_M * asin(sqrt(a))
+  // Near-antipodal points can round a just past 1, which would make asin NaN.
+  return 2 * EARTH_RADIUS_M * asin(sqrt(a.coerceIn(0.0, 1.0)))
 }
