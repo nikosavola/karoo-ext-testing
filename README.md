@@ -4,13 +4,20 @@ Test doubles for the Karoo system side of [karoo-ext](https://github.com/hammerh
 Karoo extension be tested on the JVM with Robolectric, and on an emulator without a Karoo, by standing in for the
 `KarooSystemService` the extension binds to.
 
+Test and debug tooling only: do not ship these artifacts in a release APK.
+
+## Docs
+
+- [Testing guide](docs/testing-guide.md): recipes for binding a real extension service, driving sensor streams, HTTP sequence and failure paths, FIT/device/bonus outputs, cleanup assertions, and time.
+
 ## Artifacts
 
 Three artifacts, all published together:
 
-- `karoo-ext-testing`: `FakeKarooSystem` (an in-process `IKarooSystem`), `FakeKarooHost` and its recorders for
-  streams, views and maps, HTTP responders (`HttpResponder`, `HttpResponses`, `RoutingResponder`, `LiveResponder`),
-  `CapturingHandler` and `awaitValue`, RemoteViews inspection helpers, and `encodePolyline`.
+- `karoo-ext-testing`: `FakeKarooSystem` (an in-process `IKarooSystem`, `Closeable`), `FakeKarooHost` and its
+  recorders for streams, views, maps, scans, device connections and FIT, HTTP responders (`HttpResponder`,
+  `HttpResponses`, `SequenceResponder`, `RoutingResponder`, `LiveResponder`), `CapturingHandler` and `awaitValue`,
+  RemoteViews inspection helpers, and `encodePolyline`.
 - `karoo-ext-testing-robolectric`: `FakeKarooBinding.install` to point KarooSystemService's bind at a
   `FakeKarooSystem`, `RobolectricPump`, and a generic `FakeKarooRule`.
 - `karoo-ext-testing-appstore`: an Android library whose manifest declares the exported
@@ -91,16 +98,24 @@ class MyFieldTest {
 }
 ```
 
-`FakeKarooRule` installs the binding before each test (via `FakeKarooBinding.install`) and resets the fake after.
-If you do not want the rule, call `FakeKarooBinding.install(application, system)` yourself and pass
+`FakeKarooRule` installs the binding before each test (via `FakeKarooBinding.install`) and tears everything down
+after: it closes every host (stopping its sessions), destroys their services, then closes the fake system. If you do
+not want the rule, call `FakeKarooBinding.install(application, system)` yourself and pass
 `RobolectricPump.invoke()` as a recorder's `pump` so main-thread work runs while a test blocks.
 
-`FakeKarooSystem` is sticky, like the device: a consumer that registers late still gets the current location,
-navigation, ride state, user profile and active page. Set them with `setLocation`, `setNavigation`, `setRoute` (a polyline the ride app would
-follow, with its length measured along it), `setRideState`, `setUserProfile` and `showPage`;
-`reset()` clears everything back to defaults. Bridged HTTP requests go through
-`responder` and are recorded in `httpRequests`; effects the extension dispatches land in `effects` (filter with
-`effectsOf<T>()`).
+`FakeKarooSystem` replays the current value to a consumer that registers late: location, navigation, ride state,
+user profile, active page and stream state. The SDK documents this replay only for ride state and user profile; the
+rest is fake policy chosen for deterministic tests. Set them with `setLocation`, `setNavigation`, `setRoute` (a
+polyline the ride app would follow, with its length measured along it), `setRideState`, `setUserProfile` and
+`showPage`; publish one-shot events keyed by params with `publish(params, event)`, and drive built-in data types with
+`setStreamState(id, state)` or `setDataPoint(id, value)`. `reset()` clears everything back to defaults and stays
+reusable; `close()` is terminal. Bridged HTTP requests go through `responder` and are recorded in `httpRequests`;
+effects the extension dispatches land in `effects` (filter with `effectsOf<T>()`). Recorders expose `items` read-only
+plus `completed`/`error`, with `await` (Long and `Duration`), `awaitComplete` and `awaitError`; `consumerCount`,
+`consumerParams`, `pendingHttpCount` and `streams` let a test assert cleanup. `HttpResponses.sequence(...)` answers
+requests in order and fails on exhaustion. `RobolectricPump.advanceBy(Duration)` advances the Robolectric main looper
+clock; virtualizing the SDK's own wall clock for the view frame throttle is a per-test opt-in described in the
+[testing guide](docs/testing-guide.md).
 
 ## Emulator
 
