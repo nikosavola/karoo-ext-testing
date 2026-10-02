@@ -33,4 +33,13 @@ object HttpResponses {
     HttpAnswer(HttpResponseState.Complete(0, emptyMap(), null, message))
 
   fun notFound(): HttpAnswer = status(HTTP_NOT_FOUND)
+
+  /**
+   * Answers requests from [answers] in order. The fake consumes one per request and throws on
+   * exhaustion rather than repeating the last answer, so an unexpected extra poll fails loudly.
+   */
+  fun sequence(vararg answers: HttpAnswer): SequenceResponder {
+    require(answers.isNotEmpty()) { "sequence needs at least one answer" }
+    return SequenceResponder(answers.toList())
+  }
 }
