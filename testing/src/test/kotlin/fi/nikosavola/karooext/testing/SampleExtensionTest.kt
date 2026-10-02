@@ -2,12 +2,19 @@ package fi.nikosavola.karooext.testing
 
 import androidx.test.core.app.ApplicationProvider
 import fi.nikosavola.karooext.testing.robolectric.FakeKarooRule
+import io.hammerhead.karooext.models.BatteryStatus
+import io.hammerhead.karooext.models.ConnectionStatus
 import io.hammerhead.karooext.models.DataType
+import io.hammerhead.karooext.models.OnBatteryStatus
+import io.hammerhead.karooext.models.OnConnectionStatus
+import io.hammerhead.karooext.models.OnDataPoint
 import io.hammerhead.karooext.models.ShowSymbols
 import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.ViewConfig
+import io.hammerhead.karooext.models.WriteToRecordMesg
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,6 +37,8 @@ private fun viewConfig() =
 @Config(sdk = [35])
 class SampleExtensionTest {
   @get:Rule val karoo = FakeKarooRule()
+
+  @Before fun resetSample() = SampleExtension.reset()
 
   @Test
   fun `location reaches the extension stream through bridged http`() {
@@ -81,5 +90,86 @@ class SampleExtensionTest {
     assertTrue(karoo.system.consumerCount > before)
     host.stopStream(stream)
     assertEquals(before, karoo.system.consumerCount)
+  }
+
+  @Test
+  fun `power type reads built-in power and recovers after a loss`() {
+    val stream = karoo.host<SampleExtension>().startStream(SAMPLE_POWER_TYPE)
+    stream.await(SAMPLE_AWAIT_MS) { it is StreamState.Searching }
+    karoo.system.setDataPoint(DataType.Type.POWER, 250.0)
+    val first =
+      stream.await(SAMPLE_AWAIT_MS) { it is StreamState.Streaming } as StreamState.Streaming
+    assertEquals(250.0, first.dataPoint.values.getValue(DataType.Field.SINGLE), 0.0)
+
+    // The built-in source drops out, then comes back: the field should report Searching and
+    // recover to Streaming rather than getting stuck.
+    karoo.system.setStreamState(DataType.Type.POWER, StreamState.NotAvailable)
+    stream.await(SAMPLE_AWAIT_MS, after = 2) { it is StreamState.Searching }
+    karoo.system.setDataPoint(DataType.Type.POWER, 300.0)
+    val second =
+      stream.await(SAMPLE_AWAIT_MS) { state ->
+        state is StreamState.Streaming && state.dataPoint.values[DataType.Field.SINGLE] == 300.0
+      } as StreamState.Streaming
+    assertEquals(300.0, second.dataPoint.values.getValue(DataType.Field.SINGLE), 0.0)
+  }
+
+  @Test
+  fun `stopping the power stream unsubscribes from built-in power`() {
+    val host = karoo.host<SampleExtension>()
+    val before = karoo.system.consumerCount
+    val stream = host.startStream(SAMPLE_POWER_TYPE)
+    karoo.system.setDataPoint(DataType.Type.POWER, 100.0)
+    stream.await(SAMPLE_AWAIT_MS) { it is StreamState.Streaming }
+    assertTrue(karoo.system.consumerCount > before)
+    host.stopStream(stream)
+    assertEquals(before, karoo.system.consumerCount)
+  }
+
+  @Test
+  fun `scan decodes a device with its data types`() {
+    val scan = karoo.host<SampleExtension>().startScan()
+    val device = scan.await(SAMPLE_AWAIT_MS) { it.uid == SAMPLE_DEVICE_UID }
+    assertEquals(SAMPLE_EXTENSION_ID, device.extension)
+    assertEquals(listOf(DataType.Type.POWER), device.dataTypes)
+  }
+
+  @Test
+  fun `connect decodes device events and cancel unsubscribes`() {
+    val host = karoo.host<SampleExtension>()
+    val device = host.connectDevice(SAMPLE_DEVICE_UID)
+    val status = device.await(SAMPLE_AWAIT_MS) { it is OnConnectionStatus } as OnConnectionStatus
+    assertEquals(ConnectionStatus.CONNECTED, status.status)
+    val battery = device.await(SAMPLE_AWAIT_MS) { it is OnBatteryStatus } as OnBatteryStatus
+    assertEquals(BatteryStatus.GOOD, battery.status)
+    val point = device.await(SAMPLE_AWAIT_MS) { it is OnDataPoint } as OnDataPoint
+    assertEquals(200.0, point.dataPoint.values.getValue(DataType.Field.POWER), 0.0)
+    assertEquals(SAMPLE_DEVICE_UID, point.dataPoint.sourceId)
+    host.disconnectDevice(device)
+    assertTrue(SampleExtension.cancelled.contains("connect"))
+  }
+
+  @Test
+  fun `fit effects decode and can be filtered`() {
+    val fit = karoo.host<SampleExtension>().startFit()
+    val effect = fit.await(SAMPLE_AWAIT_MS) { it is WriteToRecordMesg } as WriteToRecordMesg
+    assertEquals(200.0, effect.values.single().value, 0.0)
+    assertEquals(1, fit.effectsOf<WriteToRecordMesg>().size)
+  }
+
+  @Test
+  fun `bonus action reaches the extension`() {
+    val host = karoo.host<SampleExtension>()
+    host.bonusAction(SAMPLE_BONUS_ACTION)
+    assertEquals(listOf(SAMPLE_BONUS_ACTION), SampleExtension.bonusActions.toList())
+  }
+
+  @Test
+  fun `closing the host cancels scan and fit sessions`() {
+    val host = karoo.host<SampleExtension>()
+    host.startScan()
+    host.startFit()
+    host.close()
+    assertTrue(SampleExtension.cancelled.contains("scan"))
+    assertTrue(SampleExtension.cancelled.contains("fit"))
   }
 }
