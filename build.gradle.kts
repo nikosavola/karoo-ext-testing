@@ -70,6 +70,9 @@ dokka {
   }
 }
 
+// Docs embed KDoc @sample snippets from the testing unit-test source set, so compile them first.
+tasks.named("dokkaGeneratePublicationHtml") { dependsOn(":testing:compileDebugUnitTestKotlin") }
+
 dependencies {
   dokka(project(":testing"))
   dokka(project(":robolectric"))

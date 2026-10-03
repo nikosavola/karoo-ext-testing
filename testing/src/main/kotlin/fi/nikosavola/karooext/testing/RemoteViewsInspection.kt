@@ -12,9 +12,13 @@ import android.widget.RemoteViews
 import android.widget.TextView
 import kotlin.math.abs
 
-/** Inflates a field frame the way the Karoo does, into a host container. */
+/**
+ * Inflates a field frame the way the Karoo does, into a host container. [context] must resolve the
+ * RemoteViews' resource package; an Android or Robolectric context for that package works.
+ */
 fun RemoteViews.inflate(context: Context): View = apply(context, FrameLayout(context))
 
+/** This view and all its descendants, depth first in child order; the root is included. */
 fun View.descendants(): Sequence<View> = sequence {
   yield(this@descendants)
   if (this@descendants is ViewGroup) {
@@ -22,6 +26,10 @@ fun View.descendants(): Sequence<View> = sequence {
   }
 }
 
+/**
+ * Visible text of every `TextView` under this view, in depth-first order. Blank-but-nonempty
+ * strings are kept; nothing is filtered by visibility.
+ */
 fun View.texts(): List<String> =
   descendants()
     .filterIsInstance<TextView>()
@@ -29,6 +37,10 @@ fun View.texts(): List<String> =
     .filter { it.isNotEmpty() }
     .toList()
 
+/**
+ * Bitmaps of every `ImageView` under this view that holds a `BitmapDrawable`, in depth-first order.
+ * Vector and other drawables are skipped, not rasterized.
+ */
 fun View.bitmaps(): List<Bitmap> =
   descendants()
     .filterIsInstance<ImageView>()
@@ -37,7 +49,9 @@ fun View.bitmaps(): List<Bitmap> =
 
 /**
  * Whether any pixel is within [tolerance] per channel of [color]; RGB_565 frames shift colours.
- * Alpha is ignored, since 565 frames drop it.
+ * Alpha is ignored, since 565 frames drop it. Reads the whole bitmap, so it costs width * height.
+ *
+ * @throws IllegalArgumentException if [tolerance] is negative.
  */
 fun Bitmap.hasColorNear(color: Int, tolerance: Int = 12): Boolean {
   require(tolerance >= 0) { "tolerance must be nonnegative, was $tolerance" }
@@ -46,8 +60,11 @@ fun Bitmap.hasColorNear(color: Int, tolerance: Int = 12): Boolean {
 }
 
 /**
- * Share of pixels near [color], e.g. how much of a map frame is still untiled background. Alpha is
- * ignored, since 565 frames drop it.
+ * Share of pixels within [tolerance] per channel of [color], from 0.0 to 1.0, e.g. how much of a
+ * map frame is still untiled background. Alpha is ignored, since 565 frames drop it. Reads the
+ * whole bitmap, so it costs width * height.
+ *
+ * @throws IllegalArgumentException if [tolerance] is negative.
  */
 fun Bitmap.fractionNear(color: Int, tolerance: Int = 4): Double {
   require(tolerance >= 0) { "tolerance must be nonnegative, was $tolerance" }

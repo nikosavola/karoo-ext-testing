@@ -31,7 +31,10 @@ import java.util.concurrent.Executors
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
+/** Package of the Karoo system app the SDK binds to, mirrored by the appstore stand-in. */
 const val KAROO_SYSTEM_PACKAGE = "io.hammerhead.appstore"
+
+/** Fully-qualified `AppStoreService` name the SDK binds to by name. */
 const val KAROO_SYSTEM_SERVICE = "io.hammerhead.appstore.service.AppStoreService"
 
 private const val BRIDGE_MAX_BODY = 100_000
@@ -48,17 +51,25 @@ private const val SERIAL = "fake"
  * every stored value.
  *
  * HTTP is answered on `httpThreads` (one by default, so responses land in request order; it must be
- * positive). The responder and body limit are captured when a request is registered, so changing
+ * positive). The `responder` and body limit are captured when a request is registered, so changing
  * either later does not affect a request already in flight. [reset] and [removeEventConsumer]
  * invalidate in-flight requests and [close] is terminal. Registration, cancellation and delivery
  * share one lock, so a cancel that returns before a delivery starts prevents it, but a delivery
- * already inside a handler completes.
+ * already inside a handler completes. Response arrival order is only guaranteed when `httpThreads`
+ * is one; with several threads two answers can interleave.
  *
  * [completeConsumer] and [errorConsumer] drive an ordinary consumer's terminal callbacks for tests
  * that need the real SDK's auto-unregister path; they are a raw hook, not a device guarantee.
  *
- * Suppressing TooManyFunctions: it implements the whole IKarooSystem AIDL surface plus a setter per
- * sticky event.
+ * @property responder answers each bridged HTTP request, a `404` by default; captured per request
+ *   at registration. Its exceptions are turned into a status 0 error carrying only the
+ *   fully-qualified class name, never the request, so a URL in the message cannot leak.
+ * @param maxBodyBytes largest response body the bridge accepts; larger bodies become a status 0
+ *   error.
+ * @param httpThreads size of the HTTP executor.
+ * @property hardwareType what `info()` reports and what [reset] restores.
+ * @param libVersion what `libVersion()` reports; fixed constructor metadata that [reset] keeps.
+ * @throws IllegalArgumentException if `maxBodyBytes` is negative or `httpThreads` is not positive.
  */
 @Suppress("TooManyFunctions")
 class FakeKarooSystem(
@@ -82,7 +93,7 @@ class FakeKarooSystem(
   private class Consumer(val params: KarooEventParams, val handler: IHandler)
 
   /**
-   * One registered HTTP request; [responder] and [maxBodyBytes] are snapshotted at registration.
+   * One registered HTTP request; `responder` and `maxBodyBytes` are snapshotted at registration.
    */
   private class PendingHttp(
     val request: OnHttpResponse.MakeHttpRequest,
@@ -97,7 +108,10 @@ class FakeKarooSystem(
   private val pendingHttp = ConcurrentHashMap<String, PendingHttp>()
   private val streamStates = ConcurrentHashMap<String, StreamState>()
 
-  /** The companion bridge rejects bodies over ~100 KB; negative limits make no sense here. */
+  /**
+   * Largest response body the bridge accepts; a larger body becomes a status 0 error. Captured per
+   * request when it is registered. Setting a negative value throws `IllegalArgumentException`.
+   */
   @Volatile
   var maxBodyBytes: Int = maxBodyBytes
     set(value) {
@@ -118,29 +132,44 @@ class FakeKarooSystem(
 
   @Volatile private var closed = false
 
+  /** Every effect dispatched through the binder so far, in order. A live thread-safe log. */
   val effects = CopyOnWriteArrayList<KarooEffect>()
+
+  /**
+   * Every HTTP request registered so far, in order. A live thread-safe log of arrivals, not a
+   * snapshot of what is still pending; see [pendingHttpCount] for that.
+   */
   val httpRequests = CopyOnWriteArrayList<OnHttpResponse.MakeHttpRequest>()
 
+  /** Latest location from [setLocation], or null before the first. Replayed to new consumers. */
   @Volatile
   var location: OnLocationChanged? = null
     private set
 
+  /**
+   * Latest navigation state, idle by default. [setNavigation] and [setRoute] update it, and it is
+   * replayed to new consumers.
+   */
   @Volatile
   var navigation: OnNavigationState = OnNavigationState(OnNavigationState.NavigationState.Idle)
     private set
 
+  /** Latest ride state from [setRideState], idle by default. Sticky for new consumers. */
   @Volatile
   var rideState: RideState = RideState.Idle
     private set
 
+  /** Latest user profile from [setUserProfile], metric by default. Sticky for new consumers. */
   @Volatile
   var userProfile: UserProfile = metricProfile()
     private set
 
+  /** Page shown by [showPage], or null before the first. Sticky for new consumers. */
   @Volatile
   var activePage: ActiveRidePage? = null
     private set
 
+  /** Number of registered ordinary event consumers. HTTP consumers are counted separately. */
   val consumerCount: Int
     get() = consumers.size
 
@@ -160,15 +189,24 @@ class FakeKarooSystem(
   val streams: Map<String, StreamState>
     get() = streamStates.toMap()
 
+  /** Reports the constructor's `libVersion`, not whatever SDK is on the runtime classpath. */
   override fun libVersion(): String = reportedLibVersion
 
+  /** Returns `KarooInfo` with the fixed serial and the current `hardwareType`. */
   override fun info(): Bundle =
     KarooInfo(SERIAL, hardwareType).bundleWithSerializable(KAROO_SYSTEM_PACKAGE)
 
+  /** Records the `KarooEffect` in [bundle] into [effects]; an unreadable bundle is ignored. */
   override fun dispatchEffect(bundle: Bundle) {
     bundle.serializableFromBundle<KarooEffect>()?.let(effects::add)
   }
 
+  /**
+   * Registers [handler] for the event params in [params]. A params bundle that does not decode
+   * calls `onError("Unreadable params")` and registers nothing. An HTTP params bundle becomes a
+   * pending request answered on the executor rather than an ordinary consumer; an ordinary consumer
+   * is sent the current sticky value immediately when one exists. Throws if the system is closed.
+   */
   override fun addEventConsumer(id: String, params: Bundle, handler: IHandler) {
     val parsed = params.serializableFromBundle<KarooEventParams>()
     lifecycleLock.withLock {
@@ -192,6 +230,10 @@ class FakeKarooSystem(
     }
   }
 
+  /**
+   * Removes an ordinary consumer or a pending HTTP request by [id]. A pending request that has not
+   * begun delivery is dropped; one already inside its handler finishes. Unknown ids are ignored.
+   */
   override fun removeEventConsumer(id: String) {
     lifecycleLock.withLock {
       consumers.remove(id)
@@ -235,12 +277,14 @@ class FakeKarooSystem(
       true
     }
 
+  /** Publishes a location and stores it for late consumers. [orientation] is null when unknown. */
   fun setLocation(lat: Double, lng: Double, orientation: Double? = null) {
     val event = OnLocationChanged(lat, lng, orientation)
     location = event
     publish(OnLocationChanged.Params, event)
   }
 
+  /** Publishes a navigation state and stores it as the latest, replayed to new consumers. */
   fun setNavigation(state: OnNavigationState.NavigationState) {
     val event = OnNavigationState(state)
     navigation = event
@@ -250,6 +294,8 @@ class FakeKarooSystem(
   /**
    * Navigates [points] (lat to lng) as the active route, the way the ride app follows a planned
    * one; distance along the polyline unless [routeDistanceMeters] says otherwise.
+   *
+   * @sample fi.nikosavola.karooext.testing.samples.routeInput
    */
   fun setRoute(
     points: List<Pair<Double, Double>>,
@@ -272,11 +318,13 @@ class FakeKarooSystem(
     )
   }
 
+  /** Publishes a ride state and stores it as the latest, replayed to new consumers. */
   fun setRideState(state: RideState) {
     rideState = state
     publish(RideState.Params, state)
   }
 
+  /** Publishes a user profile and stores it as the latest, replayed to new consumers. */
   fun setUserProfile(profile: UserProfile) {
     userProfile = profile
     publish(UserProfile.Params, profile)
@@ -299,6 +347,9 @@ class FakeKarooSystem(
    * Stores the latest [state] for [dataTypeId] and sends it to every consumer waiting on
    * [OnStreamState.StartStreaming] for that id. A consumer that registers later still gets it. A
    * [StreamState.Streaming] whose point names a different id is rejected as a test bug.
+   *
+   * @throws IllegalArgumentException if [dataTypeId] is blank, or if a [StreamState.Streaming]
+   *   [state] carries a point whose id is not [dataTypeId].
    */
   fun setStreamState(dataTypeId: String, state: StreamState) {
     require(dataTypeId.isNotBlank()) { "dataTypeId must not be blank" }
@@ -311,11 +362,19 @@ class FakeKarooSystem(
     publish(OnStreamState.StartStreaming(dataTypeId), OnStreamState(state))
   }
 
-  /** Publishes [point] as the latest state for the data type id it carries. */
+  /**
+   * Publishes [point] as the latest state for the data type id it carries.
+   *
+   * @sample fi.nikosavola.karooext.testing.samples.nativePowerInput
+   */
   fun setDataPoint(point: DataPoint) =
     setStreamState(point.dataTypeId, StreamState.Streaming(point))
 
-  /** Publishes a single [DataType.Field.SINGLE] value as the latest state for [dataTypeId]. */
+  /**
+   * Publishes a single [DataType.Field.SINGLE] value as the latest state for [dataTypeId]. Only
+   * correct for types whose native field is SINGLE; a type such as POWER needs its own field and
+   * source, so use the [DataPoint] overload instead.
+   */
   fun setDataPoint(dataTypeId: String, value: Double) =
     setDataPoint(DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to value)))
 
@@ -327,6 +386,7 @@ class FakeKarooSystem(
     consumers.values.filter { it.params == params }.forEach { send(it.handler, event) }
   }
 
+  /** Effects of [T] recorded so far, backed by [effects]. */
   inline fun <reified T : KarooEffect> effectsOf(): List<T> = effects.filterIsInstance<T>()
 
   /**
@@ -334,8 +394,10 @@ class FakeKarooSystem(
    * invalidates in-flight HTTP requests. A response that has not begun delivery is dropped; one
    * already inside a handler has already happened and cannot be recalled.
    *
-   * Also restores `hardwareType` to the value passed to the constructor. `libVersion` is fixed
-   * constructor metadata and is retained.
+   * Also resets the mutable HTTP config to library defaults, not constructor values: `responder`
+   * goes back to a 404 and `maxBodyBytes` back to 100000. By contrast the configured `hardwareType`
+   * is restored to the value passed to the constructor, while `libVersion` is fixed constructor
+   * metadata and is retained.
    */
   fun reset() {
     lifecycleLock.withLock {
@@ -442,9 +504,12 @@ class FakeKarooSystem(
     }
   }
 
+  /** Profile fixture factory: metric and imperial representative user profiles for tests. */
   companion object {
+    /** A [UserProfile] with metric units and representative values, the default profile. */
     fun metricProfile(): UserProfile = profile(UserProfile.PreferredUnit.UnitType.METRIC)
 
+    /** A [UserProfile] with imperial units, otherwise like [metricProfile]. */
     fun imperialProfile(): UserProfile = profile(UserProfile.PreferredUnit.UnitType.IMPERIAL)
 
     private fun profile(unit: UserProfile.PreferredUnit.UnitType) =

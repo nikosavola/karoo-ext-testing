@@ -2,6 +2,7 @@
 // host end, and helpers for inspecting what an extension sends back.
 import java.net.URI
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier
 
 plugins {
   alias(libs.plugins.android.library)
@@ -43,6 +44,15 @@ dokka {
     failOnWarning.set(true)
   }
   dokkaSourceSets.configureEach {
+    reportUndocumented.set(true)
+    // Protected hooks (Recorder.record/fail/complete) are intended subclass API, so render them.
+    documentedVisibilities.set(setOf(VisibilityModifier.Public, VisibilityModifier.Protected))
+    // KDoc `@sample` snippets; they compile with the unit tests, not into the published artifact.
+    samples.from(
+      layout.projectDirectory.file(
+        "src/test/kotlin/fi/nikosavola/karooext/testing/samples/ApiSamples.kt"
+      )
+    )
     sourceLink {
       localDirectory.set(layout.projectDirectory.dir("src/main/kotlin"))
       remoteUrl.set(URI.create(sourceRoot))

@@ -2,6 +2,7 @@
 // while a test waits.
 import java.net.URI
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier
 
 plugins {
   alias(libs.plugins.android.library)
@@ -42,6 +43,8 @@ dokka {
     failOnWarning.set(true)
   }
   dokkaSourceSets.configureEach {
+    reportUndocumented.set(true)
+    documentedVisibilities.set(setOf(VisibilityModifier.Public, VisibilityModifier.Protected))
     includes.from(rootProject.file("docs/module-docs/robolectric.md"))
     sourceLink {
       localDirectory.set(layout.projectDirectory.dir("src/main/kotlin"))

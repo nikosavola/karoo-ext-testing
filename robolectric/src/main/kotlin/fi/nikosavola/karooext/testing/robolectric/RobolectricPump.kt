@@ -11,8 +11,13 @@ private val STEP: Duration = Duration.ofMillis(20)
  * while a test thread blocks in a recorder. Pass [invoke] as a recorder's `pump`.
  */
 object RobolectricPump {
+  /** Idles the main looper for 20 ms, running work due in that window. */
   fun pumpMainLooper() = shadowOf(Looper.getMainLooper()).idleFor(STEP)
 
+  /**
+   * Returns [pumpMainLooper] as a function, for passing as a recorder's `pump`. Calling this only
+   * builds the function; it does not pump until the result is invoked.
+   */
   operator fun invoke(): () -> Unit = ::pumpMainLooper
 
   /**
@@ -23,6 +28,8 @@ object RobolectricPump {
    * class Robolectric does not instrument stays real, so advancing this pump need not move an SDK
    * throttle window. It also does not advance a coroutines TestCoroutineScheduler or touch
    * Dispatchers.IO.
+   *
+   * @throws IllegalArgumentException if [duration] is not finite or is negative.
    */
   fun advanceBy(duration: kotlin.time.Duration) {
     require(duration.isFinite()) { "duration must be finite, was $duration" }

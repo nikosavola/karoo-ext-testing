@@ -114,7 +114,9 @@ reusable; `close()` is terminal. Bridged HTTP requests go through `responder` an
 effects the extension dispatches land in `effects` (filter with `effectsOf<T>()`). Recorders expose `items` read-only
 plus `completed`/`error`, with `await` (Long and `Duration`), `awaitComplete` and `awaitError`; `consumerCount`,
 `consumerParams`, `pendingHttpCount` and `streams` let a test assert cleanup. `HttpResponses.sequence(...)` answers
-requests in order and fails on exhaustion. `completeConsumer(id)` and `errorConsumer(id, message)` drive a consumer's
+requests in order, one per request; a request past the end becomes a status 0 error carrying the exception class name
+through the fake, so assert the request count or `remainingResponses` rather than relying on a loud failure.
+`completeConsumer(id)` and `errorConsumer(id, message)` drive a consumer's
 terminal callbacks as a raw handler hook, and `libVersion` reports the SDK the fake was built against unless the
 constructor overrides it. `RobolectricPump.advanceBy(Duration)` advances the Robolectric main looper
 clock; virtualizing the SDK's own wall clock for the view frame throttle is a per-test opt-in described in the
@@ -173,6 +175,7 @@ JDK 21 is required. The `justfile` at the repo root wraps the common contributor
 - `just self-test` runs only the fakes' own debug unit tests and writes JaCoCo coverage to `*/build/reports/coverage/test/debug`. There is no coverage threshold: the reports show which fake paths a test actually exercises.
 - `just docs` builds the Dokka API site into `build/dokka/html`.
 - `just docs-serve` builds the site and serves it on [http://127.0.0.1:8000](http://127.0.0.1:8000) from `build/dokka/html` using Python 3's `http.server`; override the port with `just docs-serve 9000` and stop it with Ctrl-C.
+- Public KDoc links to compiler-checked samples in `testing/src/test/kotlin/fi/nikosavola/karooext/testing/samples/ApiSamples.kt` with `@sample`. They are snippets, not tests, but they must still compile: `:dokkaGeneratePublicationHtml` depends on the testing unit-test compilation so a broken sample fails the docs build.
 - `just lint`, `just test` and `just build` run `lintAll`, `test` and `build` on their own.
 
 Without `just`, the Gradle wrapper equivalents:

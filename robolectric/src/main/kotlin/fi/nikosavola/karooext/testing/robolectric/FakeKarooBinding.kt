@@ -15,6 +15,14 @@ import org.robolectric.Shadows.shadowOf
  * each test can point the same application at its own `system`.
  */
 object FakeKarooBinding {
+  /**
+   * Registers [system] as the binder for the component the SDK binds to, using Robolectric's shadow
+   * of [application]. Nothing is actually installed: the shadow only influences binds made through
+   * this application. The caller owns the [system] and must close it.
+   *
+   * @param application the application whose next bind should reach the fake.
+   * @param system the fake to hand back from that bind.
+   */
   fun install(application: Application, system: FakeKarooSystem) {
     shadowOf(application)
       .setComponentNameAndServiceForBindService(

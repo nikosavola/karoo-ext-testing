@@ -11,14 +11,21 @@ private const val HTTP_ERROR_MIN = 400
 private const val UNSUPPORTED_PROTOCOL = "UnsupportedProtocol"
 
 /**
- * Forwards requests to a real endpoint, standing in for the Karoo's HTTP proxy. The URL and the
- * headers carry credentials, so a failure reports only the exception class name, never the request.
+ * Forwards requests to a real endpoint, standing in for the Karoo's HTTP proxy. This actually hits
+ * the network, so use it deliberately; connect and read both time out after 15 seconds.
+ *
+ * The URL and the headers carry credentials, so a failure reports only the simple exception class
+ * name (e.g. `UnknownHostException`), never the request. It is built on the host JDK's
+ * `HttpURLConnection`, not every Android implementation: PATCH is unsupported there, a GET with a
+ * body can be rewritten into a POST, and redirect following is whatever that JDK defaults to. This
+ * is a stand-in, not a promise of complete HTTP proxy fidelity.
  *
  * The SDK response header map is single-valued, so repeated response headers are joined with ", ".
  * That is lossy and not a standards guarantee: a Set-Cookie pair cannot round-trip. Field order is
  * whatever the JDK provides, and the null status-line key is dropped.
  */
 class LiveResponder : HttpResponder {
+  /** Performs the request and maps status, headers and body, or a sanitized transport failure. */
   override fun respond(request: OnHttpResponse.MakeHttpRequest): HttpResponseState.Complete {
     var connection: HttpURLConnection? = null
     return try {

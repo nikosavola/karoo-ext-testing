@@ -13,7 +13,11 @@ private const val CONTINUATION = 0x20
 private const val ASCII_OFFSET = 63
 private const val EARTH_RADIUS_M = 6_371_000.0
 
-/** Google encoded polyline, precision 5, as the Karoo sends routes. Points are lat to lng. */
+/**
+ * Google encoded polyline, precision 5, as the Karoo sends routes. Points are lat to lng in
+ * degrees, paired as `first` = latitude and `second` = longitude; altitude is not encoded. Values
+ * are not validated or range-checked, so an out-of-range point encodes as given.
+ */
 fun encodePolyline(points: List<Pair<Double, Double>>): String = buildString {
   var lastLat = 0L
   var lastLng = 0L
@@ -36,7 +40,11 @@ private fun StringBuilder.appendValue(delta: Long) {
   append((value + ASCII_OFFSET).toInt().toChar())
 }
 
-/** Great-circle length of a polyline, metres. */
+/**
+ * Great-circle length of a polyline, metres, using a spherical earth of radius 6371000 m. A point
+ * list with zero or one point has length 0; input is paired as in [encodePolyline] and not
+ * validated.
+ */
 fun polylineLengthMeters(points: List<Pair<Double, Double>>): Double =
   points.zipWithNext().sumOf { (from, to) -> haversineMeters(from, to) }
 

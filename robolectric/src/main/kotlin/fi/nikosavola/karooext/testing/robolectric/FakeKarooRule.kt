@@ -16,12 +16,17 @@ import org.robolectric.android.controller.ServiceController
  * Binds the extension's KarooSystemService to an in-process `system` and tears everything down
  * after each test: hosts close first (stopping their sessions), their services are destroyed, and
  * then `system` closes. Generic: it knows nothing about the extension under test. Use with
- * Robolectric.
+ * `RobolectricTestRunner` on JUnit 4, since [app] is resolved when the rule field initializes.
  *
- * `after` calls [close], which is public and idempotent, so a test may tear down early and the rule
- * will not run it twice. A rule instance is single-use.
+ * [host] starts a service through `create` and `onBind`; `onStartCommand` is never called. [close]
+ * attempts every teardown step and rethrows the first failure with the later ones suppressed. It is
+ * not itself `Closeable`; `after` calls it, and a test may call it early because it is idempotent.
+ * A rule instance is single-use.
+ *
+ * @property system the fake the bound service talks to; closed by [close]. Defaults to a fresh one.
  */
 class FakeKarooRule(val system: FakeKarooSystem = FakeKarooSystem()) : ExternalResource() {
+  /** Application the rule binds through, resolved from the Robolectric test application. */
   val app: Application = ApplicationProvider.getApplicationContext()
 
   private val hosts = CopyOnWriteArrayList<FakeKarooHost>()
@@ -29,12 +34,16 @@ class FakeKarooRule(val system: FakeKarooSystem = FakeKarooSystem()) : ExternalR
 
   @Volatile private var closed = false
 
+  /**
+   * Installs the binding for `system` and pumps the looper. Fails if the rule was already closed.
+   */
   override fun before() {
     checkRuleOpen()
     FakeKarooBinding.install(app, system)
     RobolectricPump.pumpMainLooper()
   }
 
+  /** Tears down through [close]. */
   override fun after() = close()
 
   /** Closes every host, destroys its service and closes `system`, attempting all of them. */
@@ -72,7 +81,11 @@ class FakeKarooRule(val system: FakeKarooSystem = FakeKarooSystem()) : ExternalR
     failure?.let { throw it }
   }
 
-  /** Starts [extension] like the Karoo ride app and connects to it over the binder. */
+  /**
+   * Starts [extension] like the Karoo ride app and connects to it over the binder. The service is
+   * created and bound but not started, so `onStartCommand` never runs. The returned host is tracked
+   * and closed by [close]; a failure during create or bind destroys the service before rethrowing.
+   */
   @Suppress("RethrowCaughtException", "TooGenericExceptionCaught")
   fun host(extension: Class<out Service>): FakeKarooHost {
     checkRuleOpen()
@@ -103,6 +116,7 @@ class FakeKarooRule(val system: FakeKarooSystem = FakeKarooSystem()) : ExternalR
     }
   }
 
+  /** Reified convenience overload of [host] for `karoo.host<MyExtension>()`. */
   inline fun <reified T : Service> host(): FakeKarooHost = host(T::class.java)
 
   private fun checkRuleOpen() = check(!closed) { "FakeKarooRule is closed; a rule is single-use" }
