@@ -1,0 +1,111 @@
+:root {
+    color-scheme: light;
+
+    --color-background-page: #faf9f6;
+    --color-background: #faf9f6;
+    --background-color: #faf9f6;
+    --default-white: #ffffff;
+    --color-background-footer: #f1f2ed;
+    --color-background-nav: #14291f;
+    --color-background-nav-dt: #10221a;
+
+    --color-text: #1b241f;
+    --color-text-light: #4d5a52;
+    --default-font-color: #1b241f;
+    --hover-link-color: #0f766e;
+
+    --color-key-blue: #0f766e;
+    --color-key-blue-hover: #0d9488;
+    --color-key-blue-50: rgba(15, 118, 110, 0.5);
+    --active-tab-border-color: #0f766e;
+
+    --border-color: rgba(20, 41, 31, 0.16);
+    --color-b20: rgba(20, 41, 31, 0.2);
+    --blockquote-background: rgba(20, 41, 31, 0.04);
+    --color-dark: #23302a;
+
+    --color-background-code-block: #f0f3ee;
+    --color-background-inline-code: rgba(15, 118, 110, 0.08);
+
+    --color-scrollbar: rgba(15, 118, 110, 0.45);
+    --color-scrollbar-track: #eceee8;
+
+    --ring-link-hover-color: #0d9488;
+    --ring-text-color: #1b241f;
+    --ring-content-background-color: #ffffff;
+}
+
+.theme-dark {
+    color-scheme: dark;
+
+    --color-background-page-dt: #121a16;
+    --color-background: #121a16;
+    --background-color: #121a16;
+    --color-background-footer: #1a231e;
+    --color-background-footer-dt: #1a231e;
+    --color-background-nav: #0d1b15;
+    --color-background-nav-dt: #0b1712;
+
+    --color-text-dt: #e7efe9;
+    --default-font-color: #e7efe9;
+    --color-text-light-dt: #aab8af;
+    --hover-link-color: #5eead4;
+
+    --color-key-blue: #2dd4bf;
+    --color-key-blue-hover: #5eead4;
+    --color-key-blue-50: rgba(45, 212, 191, 0.5);
+    --active-tab-border-color: #2dd4bf;
+
+    --border-color: rgba(231, 239, 233, 0.18);
+    --blockquote-background: rgba(231, 239, 233, 0.05);
+    --color-dark: #22302a;
+
+    --color-background-code-block: rgba(231, 239, 233, 0.07);
+    --color-background-inline-code: rgba(45, 212, 191, 0.12);
+
+    --color-scrollbar: rgba(45, 212, 191, 0.45);
+    --color-scrollbar-track: #1a231e;
+
+    --ring-link-hover-color: #99f6e4;
+    --ring-text-color: #e7efe9;
+    --ring-content-background-color: #1a231e;
+}
+
+/* Dokka paints the active TOC toggle and link separately, so both need contrast. */
+.theme-dark .toc--part[data-active] > .toc--row .toc--button,
+.theme-dark .toc--part[data-active] > .toc--row .toc--link {
+    background-color: #0f766e;
+    color: #e7efe9;
+}
+
+.theme-dark .toc--part[data-active] > .toc--row .toc--button:hover,
+.theme-dark .toc--part[data-active] > .toc--row .toc--link:hover {
+    background: #0f766e;
+    color: #e7efe9;
+}
+
+body {
+    background-color: var(--color-background);
+}
+
+.main-content a:not([data-name]) {
+    color: var(--hover-link-color);
+    border-bottom-color: var(--color-key-blue-50);
+}
+
+.main-content a:not([data-name]):hover {
+    color: var(--color-key-blue-hover);
+}
+
+.symbol:not(.token):not(.wrapped),
+code.block,
+.divergent-group {
+    border-radius: 6px;
+}
+
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible {
+    outline: 3px solid var(--color-key-blue-50);
+    outline-offset: 2px;
+}

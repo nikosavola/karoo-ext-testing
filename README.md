@@ -175,6 +175,7 @@ JDK 21 is required. The `justfile` at the repo root wraps the common contributor
 - `just self-test` runs only the fakes' own debug unit tests and writes JaCoCo coverage to `*/build/reports/coverage/test/debug`. There is no coverage threshold: the reports show which fake paths a test actually exercises.
 - `just docs` builds the Dokka API site into `build/dokka/html`.
 - `just docs-serve` builds the site and serves it on [http://127.0.0.1:8000](http://127.0.0.1:8000) from `build/dokka/html` using Python 3's `http.server`; override the port with `just docs-serve 9000` and stop it with Ctrl-C.
+- API styling lives in `docs/styles/alpine.css`, applied by Dokka through the root `customStyleSheets`, so `just docs` and the Pages build pick it up with no extra step.
 - Public KDoc links to compiler-checked samples in `testing/src/test/kotlin/fi/nikosavola/karooext/testing/samples/ApiSamples.kt` with `@sample`. They are snippets, not tests, but they must still compile: `:dokkaGeneratePublicationHtml` depends on the testing unit-test compilation so a broken sample fails the docs build.
 - `just lint`, `just test` and `just build` run `lintAll`, `test` and `build` on their own.
 

@@ -1,3 +1,4 @@
+import org.jetbrains.dokka.gradle.DokkaExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.sonarqube.gradle.SonarExtension
 
@@ -67,6 +68,18 @@ dokka {
     includes.from(layout.projectDirectory.file("docs/testing-guide.md"))
     suppressInheritedMembers.set(true)
     failOnWarning.set(true)
+  }
+}
+
+// Each module renders its own HTML, so the stylesheet must be set on every Dokka plugin, not just
+// the root.
+allprojects {
+  plugins.withId("org.jetbrains.dokka") {
+    extensions.configure<DokkaExtension> {
+      pluginsConfiguration.html {
+        customStyleSheets.from(rootProject.layout.projectDirectory.file("docs/styles/alpine.css"))
+      }
+    }
   }
 }
 
