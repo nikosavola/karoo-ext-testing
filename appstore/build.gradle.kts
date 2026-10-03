@@ -1,7 +1,10 @@
 // The Karoo system app stand-in for emulator tests. A consumer app module with applicationId
 // io.hammerhead.appstore depends on this artifact so karoo-ext's bind by name reaches the fake.
+import java.net.URI
+
 plugins {
   alias(libs.plugins.android.library)
+  alias(libs.plugins.dokka)
   `maven-publish`
 }
 
@@ -15,6 +18,25 @@ android {
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   publishing { singleVariant("release") { withSourcesJar() } }
+}
+
+val documentationRef = providers.gradleProperty("documentationRef").getOrElse("main")
+val sourceBase = "https://github.com/nikosavola/karoo-ext-testing/blob"
+val sourceRoot = "$sourceBase/$documentationRef/${project.name}/src/main/kotlin"
+
+dokka {
+  dokkaPublications.html {
+    suppressInheritedMembers.set(true)
+    failOnWarning.set(true)
+  }
+  dokkaSourceSets.configureEach {
+    includes.from(rootProject.file("docs/module-docs/appstore.md"))
+    sourceLink {
+      localDirectory.set(layout.projectDirectory.dir("src/main/kotlin"))
+      remoteUrl.set(URI.create(sourceRoot))
+      remoteLineSuffix.set("#L")
+    }
+  }
 }
 
 kotlin { jvmToolchain(21) }

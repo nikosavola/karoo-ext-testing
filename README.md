@@ -9,6 +9,7 @@ Test and debug tooling only: do not ship these artifacts in a release APK.
 ## Docs
 
 - [Testing guide](docs/testing-guide.md): recipes for binding a real extension service, driving sensor streams, HTTP sequence and failure paths, FIT/device/bonus outputs, cleanup assertions, and time.
+- [API reference](https://nikosavola.github.io/karoo-ext-testing/): Dokka HTML for all three modules, with source links pinned to the commit it was built from. The `Docs` workflow builds it on pushes to `main` and publishes through GitHub Pages, which is not live until a one-time repository setup: **Settings > Pages > Build and deployment > Source: GitHub Actions**. Run the workflow manually from the Actions tab to build the site without publishing a feature branch.
 
 ## Artifacts
 
@@ -113,7 +114,9 @@ reusable; `close()` is terminal. Bridged HTTP requests go through `responder` an
 effects the extension dispatches land in `effects` (filter with `effectsOf<T>()`). Recorders expose `items` read-only
 plus `completed`/`error`, with `await` (Long and `Duration`), `awaitComplete` and `awaitError`; `consumerCount`,
 `consumerParams`, `pendingHttpCount` and `streams` let a test assert cleanup. `HttpResponses.sequence(...)` answers
-requests in order and fails on exhaustion. `RobolectricPump.advanceBy(Duration)` advances the Robolectric main looper
+requests in order and fails on exhaustion. `completeConsumer(id)` and `errorConsumer(id, message)` drive a consumer's
+terminal callbacks as a raw handler hook, and `libVersion` reports the SDK the fake was built against unless the
+constructor overrides it. `RobolectricPump.advanceBy(Duration)` advances the Robolectric main looper
 clock; virtualizing the SDK's own wall clock for the view frame throttle is a per-test opt-in described in the
 [testing guide](docs/testing-guide.md).
 
@@ -150,7 +153,17 @@ Connected tests install on every attached device. Never run them with a real Kar
 claims the Karoo system app's package name, and the tests would install and run there too. Pin the emulator with
 `ANDROID_SERIAL`.
 
+`FakeKaroo.system` is process-wide: call `FakeKaroo.system.reset()` before and after each test and never `close()` it, or later tests in the same process bind to a dead fake. The [testing guide](docs/testing-guide.md) has a template.
+
 ## Local development
+
+Contributor checks, matching CI:
+
+```bash
+./gradlew lintAll build test
+```
+
+`./gradlew :dokkaGeneratePublicationHtml` builds the API site into `build/dokka/html`.
 
 Test the library against your extension before releasing, without publishing:
 

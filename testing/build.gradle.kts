@@ -1,8 +1,11 @@
 // Test doubles for the Karoo system side of karoo-ext: an in-process IKarooSystem, an extension
 // host end, and helpers for inspecting what an extension sends back.
+import java.net.URI
+
 plugins {
   alias(libs.plugins.android.library)
   alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.dokka)
   `maven-publish`
 }
 
@@ -16,6 +19,24 @@ android {
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   publishing { singleVariant("release") { withSourcesJar() } }
+}
+
+val documentationRef = providers.gradleProperty("documentationRef").getOrElse("main")
+val sourceBase = "https://github.com/nikosavola/karoo-ext-testing/blob"
+val sourceRoot = "$sourceBase/$documentationRef/${project.name}/src/main/kotlin"
+
+dokka {
+  dokkaPublications.html {
+    suppressInheritedMembers.set(true)
+    failOnWarning.set(true)
+  }
+  dokkaSourceSets.configureEach {
+    sourceLink {
+      localDirectory.set(layout.projectDirectory.dir("src/main/kotlin"))
+      remoteUrl.set(URI.create(sourceRoot))
+      remoteLineSuffix.set("#L")
+    }
+  }
 }
 
 kotlin { jvmToolchain(21) }

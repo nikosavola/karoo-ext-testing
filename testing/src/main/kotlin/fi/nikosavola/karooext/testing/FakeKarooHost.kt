@@ -29,12 +29,18 @@ private val POLL_NANOS: Long = TimeUnit.MILLISECONDS.toNanos(POLL_MS)
 
 /**
  * The ride-app end of the extension binder: starts streams, views, maps, scans, device connections
- * and FIT writing the way a ride page does. [pump] runs while a recorder waits; Robolectric tests
- * pass a main-looper idle so work posted to the main thread still runs while the test thread
- * blocks.
+ * and FIT writing the way a ride page does.
+ *
+ * Recorded items are handed to [Recorder]s, whose waits measure real elapsed time; `pump` is
+ * invoked between polls so work the extension posts to the main thread still runs while the test
+ * thread blocks. Robolectric tests pass a main-looper idle as the pump; a plain JVM test can leave
+ * it empty.
  *
  * The host owns every session it starts and is [Closeable]: closing stops all of them, even when
  * one stop fails, and refuses to start anything new afterwards.
+ *
+ * @param extension the extension end handed back by the bound service.
+ * @param pump runs before each recorder poll to drain the main thread; no-op by default.
  */
 @Suppress("TooManyFunctions")
 class FakeKarooHost(private val extension: IKarooExtension, private val pump: () -> Unit = {}) :
@@ -234,7 +240,11 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
     signal()
   }
 
-  /** Waits for an item matching [predicate] among those that arrived after index [after]. */
+  /**
+   * Waits for an item matching [predicate] among those that arrived after index [after]. The
+   * timeout is real elapsed time, not Robolectric or coroutine virtual time, and the pump runs
+   * between polls.
+   */
   fun await(timeoutMs: Long, after: Int = 0, predicate: (T) -> Boolean): T =
     awaitNanos(TimeUnit.MILLISECONDS.toNanos(timeoutMs), timeoutLabel(timeoutMs), after, predicate)
 
@@ -242,7 +252,7 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
   fun await(timeout: Duration, after: Int = 0, predicate: (T) -> Boolean): T =
     awaitNanos(timeout.requireTimeoutNanos(), timeout.toString(), after, predicate)
 
-  /** Waits until the extension completes, failing early on a terminal error. */
+  /** Waits until the extension completes, failing early on a terminal error. Real elapsed time. */
   fun awaitComplete(timeoutMs: Long) =
     awaitCompleteNanos(TimeUnit.MILLISECONDS.toNanos(timeoutMs), timeoutLabel(timeoutMs))
 

@@ -30,14 +30,18 @@ jobs:
         with:
           packages: 'platforms;android-37.0 build-tools;36.1.0'
       - name: Lint, build and test
-        run: ./gradlew lintAll build test --no-daemon
+        env:
+          DOC_REF: ${{ github.sha }}
+        run: ./gradlew lintAll build test :dokkaGeneratePublicationHtml -PdocumentationRef="$DOC_REF" --no-daemon
       # Same publications as a release, into a scratch directory, so breakage shows before a tag.
       - name: Rehearse publishing
         run: >-
           ./gradlew publishToMavenLocal publishAllPublicationsToGitHubPackagesRepository -PgithubPackagesUrl="file://$RUNNER_TEMP/maven" --no-daemon
-      - name: Upload reports on failure
-        if: failure()
+      - name: Upload reports
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: reports
-          path: '*/build/reports/'
+          path: |
+            */build/reports/
+            build/dokka/html

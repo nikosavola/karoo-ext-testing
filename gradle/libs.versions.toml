@@ -10,6 +10,7 @@ androidx-test-core = "1.7.0"
 ktfmt = "0.27.0"
 ktlint = "14.2.0"
 detekt = "2.0.0-alpha.6"
+dokka = "2.2.0"
 
 [libraries]
 karoo-ext = { group = "com.github.hammerheadnav", name = "karoo-ext", version.ref = "karoo-ext" }
@@ -25,3 +26,4 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 ktfmt = { id = "com.ncorti.ktfmt.gradle", version.ref = "ktfmt" }
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
 detekt = { id = "dev.detekt", version.ref = "detekt" }
+dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }

@@ -7,7 +7,13 @@ import fi.nikosavola.karooext.testing.KAROO_SYSTEM_PACKAGE
 import fi.nikosavola.karooext.testing.KAROO_SYSTEM_SERVICE
 import org.robolectric.Shadows.shadowOf
 
-/** Points KarooSystemService's next bind at [system], as if the Karoo system app were installed. */
+/**
+ * Points KarooSystemService's next bind at the given `system`, as if the Karoo system app were
+ * installed.
+ *
+ * Call it before the service under test binds. A later install replaces the stored component, so
+ * each test can point the same application at its own `system`.
+ */
 object FakeKarooBinding {
   fun install(application: Application, system: FakeKarooSystem) {
     shadowOf(application)

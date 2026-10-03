@@ -1,4 +1,8 @@
-# Testing guide
+# Module karoo-ext-testing
+
+Test doubles for the Karoo system side of [karoo-ext](https://github.com/hammerheadnav/karoo-ext), published as three artifacts: [testing](testing/index.html) holds the fakes, [robolectric](robolectric/index.html) the binder glue for JVM tests, and [appstore](appstore/index.html) the system app stand-in for emulator tests. Test and debug tooling only: do not ship these artifacts in a release APK.
+
+## Testing guide
 
 Recipes for testing a Karoo extension against the fakes in this repo. The fakes stand in for the Karoo system side of the karoo-ext binder: the `KarooSystemService` an extension binds to. They are test and debug tooling only. Do not ship any of these artifacts in a release APK.
 
@@ -95,6 +99,8 @@ A consumer registered after the publish does not receive it, which is the behavi
 
 `FakeKarooSystem.responder` answers proxied requests. `HttpResponses` covers the common shapes: `success(body, headers)`, `status(code)`, `failure(message)`, `notFound()`.
 
+`LiveResponder` is the opt-in to real network access: it forwards each request's method, headers and body to the URL and returns the real status, headers and body, standing in for the Karoo's proxy. Response headers are a single-value map in the SDK, so repeated fields are joined with `", "`, which is lossy fake policy rather than a standards guarantee: a `Set-Cookie` pair cannot round-trip.
+
 For retry and ordering tests use a strict sequence. `HttpResponses.sequence(vararg answers)` hands out one answer per request and, on exhaustion, throws instead of repeating the last one. Read that throw correctly: `SequenceResponder` throws when called directly, but through the fake, `FakeKarooSystem.serve()` catches an exception from any responder and turns it into a status-0 `Complete` whose error string is the exception class name. So an unexpected extra poll does not raise in the test thread; it reaches the extension as a transport failure. Assert on the extension's behavior and on how many requests it made, not on an exception.
 
 `remainingResponses` reports how many answers are left, but it is only meaningful after the extension has actually polled. Set the sequence, drive the extension, then assert:
@@ -168,6 +174,23 @@ assertTrue(karoo.system.consumerParams.none { it == OnStreamState.StartStreaming
 
 `consumerParams` is a snapshot of the registrations the fake currently holds; it keeps no history, so on its own it cannot tell you that a handler was once present. The before/after `consumerCount` is what proves the consumer was registered and then released, with `consumerParams` confirming which one is gone. `pendingHttpCount` is the same kind of live count for in-flight HTTP. Closing the host (`host.close()`) stops every session it started, so a test can prove cancellables ran at teardown; the rule does this for you after each test.
 
+## Driving terminal callbacks and version checks
+
+`FakeKarooSystem.completeConsumer(id)` and `errorConsumer(id, message)` end an ordinary consumer's session the way the system would, so the SDK's own unregister path runs:
+
+```kotlin
+val host = karoo.host<MyExtension>()
+host.startStream("my-type")
+val id = karoo.system.consumerIds.first()
+
+karoo.system.errorConsumer(id, "dropped") // or completeConsumer(id)
+assertEquals(0, karoo.system.consumerCount) // the SDK wrapper unregistered it
+```
+
+Both return `false` for an id that is not an ordinary consumer, including a pending HTTP request id, so an unknown id is not mistaken for success. The callback runs first, then the consumer is removed by identity, so a reentrant replacement registered under the same id survives. This is a raw handler hook that drives the SDK's auto-unregister contract, not a claim that the real system ever completes a consumer.
+
+`FakeKarooSystem.libVersion()` reports the karoo-ext `EXT_LIB_VERSION` the fake was compiled against. That is a build-time constant, not the version on the test runtime classpath; pass `libVersion = "..."` to the constructor to make `libVersion()` report another value and exercise version checks.
+
 ## Time
 
 There are three time sources in play and they do not move together.
@@ -186,6 +209,8 @@ class MyViewThrottleTest {
 
   @Test
   fun `a throttled frame arrives after the clock advances`() {
+    // Without this the SDK clock starts at 0, inside its 900 ms window, and drops the first frame.
+    RobolectricPump.advanceBy(1.seconds)
     val view = karoo.host<MyExtension>().startView("my-view-type", config)
     view.awaitFrame(10_000)                    // first frame arrives
 
@@ -199,7 +224,7 @@ class MyViewThrottleTest {
 }
 ```
 
-`updateViewFromExtension()` stands in for whatever makes your extension call `updateView` (for a location-driven field, `karoo.system.setLocation(...)`). With the `instrumentedPackages` opt-in, two updates emitted back to back yield one frame, and an update after `advanceBy(1.seconds)` yields the second; without it, `advanceBy` does not affect this throttle because the SDK still reads the real clock. Capture `items.size` first and wait with `after = before` so the first frame cannot satisfy the second wait by accident.
+`updateViewFromExtension()` stands in for whatever makes your extension call `updateView` (for a location-driven field, `karoo.system.setLocation(...)`). Advance the clock past 900 ms before `startView` so the very first frame is not dropped by a window that starts at zero. With the `instrumentedPackages` opt-in, two updates emitted back to back yield one frame, and an update after `advanceBy(1.seconds)` yields the second; without it, `advanceBy` does not affect this throttle because the SDK still reads the real clock. Capture `items.size` first and wait with `after = before` so the first frame cannot satisfy the second wait by accident.
 
 Coroutine time is separate from all of the above. `Dispatchers.IO` is a real dispatcher running on actual background threads; `TestCoroutineScheduler` and `runTest` control a virtual coroutine scheduler. None of them advances the Robolectric main looper, the virtualized SDK clock, or the recorder's monotonic timeout. Keep pure-logic tests that use `runTest` and virtual time separate from binder tests that use blocking recorder waits. Pass `RobolectricPump.invoke()` as a recorder's `pump` (the rule's hosts do) so work the extension posts to the main thread runs while the test thread blocks.
 
@@ -209,17 +234,34 @@ Coroutine time is separate from all of the above. `Dispatchers.IO` is a real dis
 
 Know what the fake does and does not reproduce; several of these are the source of tests that pass in-process but would not hold on hardware.
 
-The fake reproduces the SDK's JSON-in-Bundle wire format (it reuses the SDK's own encoders, so a wire change breaks both sides together), the full `IKarooSystem` AIDL surface, and `onError`/`onComplete` terminating a consumer. Sticky replay is modeled only for `RideState` and `UserProfile`, the two events the SDK documents as replaying.
+The fake reproduces the SDK's JSON-in-Bundle wire format (it reuses the SDK's own encoders, so a wire change breaks both sides together), the full `IKarooSystem` AIDL surface, and `onError`/`onComplete` terminating a consumer. The SDK documents sticky replay only for `RideState` and `UserProfile`; the fake implements replay more broadly as fake policy, not as a claim about device behavior.
 
 Fake policy, chosen to keep tests deterministic:
 
 - In-process binder. Calls are synchronous where hardware is `oneway` and asynchronous. Sticky replay lands during `addConsumer` in tests; on hardware it arrives after the call returns. Do not build a test whose correctness depends on that ordering being guaranteed on device.
 - No BLE radio. The fake never decodes BLE or ANT bytes. Extensions own their device protocol bytes; the system service owns ANT decode for paired sensors and exposes typed fields. Do not expect the fake to exercise a radio path.
 - No exact hardware timing. The fake drives no device clock; cadence and jitter are the test's to script.
-- No speculative offline proxy mode. `waitForConnection`/`Queued` semantics are not documented by the SDK, so the fake does not model offline queuing. Requests are served immediately.
+- No offline proxy mode. The SDK documents `waitForConnection` and `Queued`, but not the real queue timings or the phone-side implementation, so the fake does not model offline queuing and serves requests immediately. Do not read its parameter timing as a device guarantee.
 - Sticky replay for location, navigation, the active page and stream state is fake policy. The SDK documents replay only for `RideState` and `UserProfile`; any other sticky behavior is a modeling choice, not a claim about the device.
 
 Reset versus close. `reset()` returns the fake to defaults and stays reusable (it also invalidates in-flight HTTP, so an answer produced before the reset is never delivered into the next test). `close()` is terminal and idempotent: it drops consumers, cancels in-flight HTTP and shuts down the executor. After close, registering a new consumer is rejected; the setters and `info()` remain callable but publish to nothing. The rule closes the system after each test; call `reset()` yourself only when you want a clean system mid-test.
+
+## Emulator tests
+
+The appstore artifact exposes a process-wide `FakeKaroo.system`, and the bound `AppStoreService` returns that same instance for the whole test process. Reset it around each test instead of closing it:
+
+```kotlin
+class MyEmulatorTest {
+  @Before fun resetFake() = FakeKaroo.system.reset()
+
+  @After fun tearDown() {
+    // Stop or disconnect any session you started, then reset.
+    FakeKaroo.system.reset()
+  }
+}
+```
+
+`reset()` clears state and leaves the fake reusable. `close()` is terminal, so never close `FakeKaroo.system` between tests, or every later test in the process binds to a dead fake.
 
 ## Toolchain and compatibility
 

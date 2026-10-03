@@ -1,0 +1,58 @@
+name: Docs
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+# A published site should never be cancelled halfway, so these runs queue instead.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+permissions: {}
+jobs:
+  build:
+    name: Build Dokka HTML
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: temurin
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platforms;android-37.0 build-tools;36.1.0'
+      # Passed through the environment; interpolating it into the script would be unsafe.
+      - name: Build Dokka HTML
+        env:
+          documentationRef: ${{ github.sha }}
+        run: ./gradlew :dokkaGeneratePublicationHtml -PdocumentationRef="$documentationRef" --no-daemon
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: build/dokka/html
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    # A feature-branch dispatch builds for review but must not overwrite the live site.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

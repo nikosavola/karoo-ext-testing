@@ -1,7 +1,10 @@
 // Robolectric glue: point KarooSystemService's bind at a FakeKarooSystem and pump the main looper
 // while a test waits.
+import java.net.URI
+
 plugins {
   alias(libs.plugins.android.library)
+  alias(libs.plugins.dokka)
   `maven-publish`
 }
 
@@ -15,6 +18,25 @@ android {
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   publishing { singleVariant("release") { withSourcesJar() } }
+}
+
+val documentationRef = providers.gradleProperty("documentationRef").getOrElse("main")
+val sourceBase = "https://github.com/nikosavola/karoo-ext-testing/blob"
+val sourceRoot = "$sourceBase/$documentationRef/${project.name}/src/main/kotlin"
+
+dokka {
+  dokkaPublications.html {
+    suppressInheritedMembers.set(true)
+    failOnWarning.set(true)
+  }
+  dokkaSourceSets.configureEach {
+    includes.from(rootProject.file("docs/module-docs/robolectric.md"))
+    sourceLink {
+      localDirectory.set(layout.projectDirectory.dir("src/main/kotlin"))
+      remoteUrl.set(URI.create(sourceRoot))
+      remoteLineSuffix.set("#L")
+    }
+  }
 }
 
 kotlin { jvmToolchain(21) }

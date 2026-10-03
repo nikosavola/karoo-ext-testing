@@ -2,6 +2,7 @@
 // serialization compiler plugin (which must match exactly) stays aligned. Literal because the
 // version catalog isn't available this early; keep in sync with `kotlin` in
 // gradle/libs.versions.toml.
+
 buildscript { dependencies { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20") } }
 
 plugins {
@@ -10,6 +11,24 @@ plugins {
   alias(libs.plugins.ktfmt) apply false
   alias(libs.plugins.ktlint) apply false
   alias(libs.plugins.detekt) apply false
+  // Applied here too: the root module is the Dokka aggregator for the three published modules.
+  alias(libs.plugins.dokka)
+}
+
+dokka {
+  dokkaPublications.html {
+    // The landing page is the testing guide, so the site doubles as the usage documentation.
+    outputDirectory.set(layout.buildDirectory.dir("dokka/html"))
+    includes.from(layout.projectDirectory.file("docs/testing-guide.md"))
+    suppressInheritedMembers.set(true)
+    failOnWarning.set(true)
+  }
+}
+
+dependencies {
+  dokka(project(":testing"))
+  dokka(project(":robolectric"))
+  dokka(project(":appstore"))
 }
 
 // Root too, so ktfmtFormat/ktfmtCheck cover this file and settings.gradle.kts.

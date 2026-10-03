@@ -13,12 +13,12 @@ import org.robolectric.Robolectric
 import org.robolectric.android.controller.ServiceController
 
 /**
- * Binds the extension's KarooSystemService to an in-process [system] and tears everything down
+ * Binds the extension's KarooSystemService to an in-process `system` and tears everything down
  * after each test: hosts close first (stopping their sessions), their services are destroyed, and
- * then [system] closes. Generic: it knows nothing about the extension under test. Use with
+ * then `system` closes. Generic: it knows nothing about the extension under test. Use with
  * Robolectric.
  *
- * [after] calls [close], which is public and idempotent, so a test may tear down early and the rule
+ * `after` calls [close], which is public and idempotent, so a test may tear down early and the rule
  * will not run it twice. A rule instance is single-use.
  */
 class FakeKarooRule(val system: FakeKarooSystem = FakeKarooSystem()) : ExternalResource() {
@@ -37,7 +37,7 @@ class FakeKarooRule(val system: FakeKarooSystem = FakeKarooSystem()) : ExternalR
 
   override fun after() = close()
 
-  /** Closes every host, destroys its service and closes [system], attempting all of them. */
+  /** Closes every host, destroys its service and closes `system`, attempting all of them. */
   @Suppress("TooGenericExceptionCaught")
   fun close() {
     if (closed) return
