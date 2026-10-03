@@ -13,7 +13,9 @@ import fi.nikosavola.karooext.testing.awaitValue
 import io.hammerhead.appstore.service.AppStoreService
 import io.hammerhead.karooext.EXT_LIB_VERSION
 import io.hammerhead.karooext.KarooSystemService
+import io.hammerhead.karooext.internal.serializableFromBundle
 import io.hammerhead.karooext.models.HardwareType
+import io.hammerhead.karooext.models.KarooInfo
 import io.hammerhead.karooext.models.RideState
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -109,6 +111,7 @@ class AppStoreServiceTest {
   fun `reset returns the singleton to defaults`() {
     FakeKaroo.system.setRideState(RideState.Recording)
     FakeKaroo.system.setLocation(1.0, 2.0)
+    FakeKaroo.system.hardwareType = HardwareType.K2
 
     FakeKaroo.system.reset()
 
@@ -116,5 +119,10 @@ class AppStoreServiceTest {
     assertNull(FakeKaroo.system.location)
     assertEquals(FakeKarooSystem.metricProfile(), FakeKaroo.system.userProfile)
     assertEquals(0, FakeKaroo.system.consumerCount)
+    assertEquals(HardwareType.KAROO, FakeKaroo.system.hardwareType)
+    assertEquals(
+      HardwareType.KAROO,
+      FakeKaroo.system.info().serializableFromBundle<KarooInfo>()!!.hardwareType,
+    )
   }
 }

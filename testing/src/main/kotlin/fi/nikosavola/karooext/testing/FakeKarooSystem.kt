@@ -76,6 +76,9 @@ class FakeKarooSystem(
 ) : IKarooSystem.Stub(), Closeable {
   private val reportedLibVersion = libVersion
 
+  // Constructor metadata, restored by reset so a mutated hardware type cannot leak across tests.
+  private val initialHardwareType = hardwareType
+
   private class Consumer(val params: KarooEventParams, val handler: IHandler)
 
   /**
@@ -330,6 +333,9 @@ class FakeKarooSystem(
    * Forgets every consumer and sticky value, drops the recorded effects and requests, and
    * invalidates in-flight HTTP requests. A response that has not begun delivery is dropped; one
    * already inside a handler has already happened and cannot be recalled.
+   *
+   * Also restores `hardwareType` to the value passed to the constructor. `libVersion` is fixed
+   * constructor metadata and is retained.
    */
   fun reset() {
     lifecycleLock.withLock {
@@ -345,6 +351,7 @@ class FakeKarooSystem(
       httpRequests.clear()
       responder = HttpResponses.notFound()
       maxBodyBytes = BRIDGE_MAX_BODY
+      hardwareType = initialHardwareType
     }
   }
 

@@ -185,6 +185,7 @@ class FakeKarooSystemTest {
     system.setLocation(1.0, 2.0)
     system.setRideState(RideState.Recording)
     system.showPage(listOf("x"))
+    system.hardwareType = HardwareType.K2
     system.add("c", OnLocationChanged.Params, CapturingHandler())
     system.add("http", makeRequest(), CapturingHandler())
     system.dispatchEffect(
@@ -201,6 +202,25 @@ class FakeKarooSystemTest {
     assertNull(system.activePage)
     assertTrue(system.effects.isEmpty())
     assertTrue(system.httpRequests.isEmpty())
+    assertEquals(HardwareType.KAROO, system.hardwareType)
+    assertEquals(
+      HardwareType.KAROO,
+      system.info().serializableFromBundle<KarooInfo>()!!.hardwareType,
+    )
+  }
+
+  @Test
+  fun `reset restores the constructor hardware type`() {
+    val system = track(FakeKarooSystem(hardwareType = HardwareType.K2))
+    system.hardwareType = HardwareType.KAROO
+
+    system.reset()
+
+    assertEquals(HardwareType.K2, system.hardwareType)
+    assertEquals(
+      HardwareType.K2,
+      system.info().serializableFromBundle<KarooInfo>()!!.hardwareType,
+    )
   }
 
   @Test
