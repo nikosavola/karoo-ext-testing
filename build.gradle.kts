@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.sonarqube.gradle.SonarExtension
+
 // AGP 9's built-in Kotlin would otherwise compile with whatever Kotlin it bundles. Pin ours so the
 // serialization compiler plugin (which must match exactly) stays aligned. Literal because the
 // version catalog isn't available this early; keep in sync with `kotlin` in
@@ -13,6 +16,48 @@ plugins {
   alias(libs.plugins.detekt) apply false
   // Applied here too: the root module is the Dokka aggregator for the three published modules.
   alias(libs.plugins.dokka)
+  alias(libs.plugins.sonarqube)
+}
+
+// SonarCloud reads the JaCoCo XML that `selfTest` writes. Paths must be absolute: this property
+// set is resolved against each module's dir, not the root, when the scanner runs.
+sonar {
+  properties {
+    property("sonar.projectKey", "nikosavola_karoo-ext-testing")
+    property("sonar.organization", "nikosavola")
+    property("sonar.host.url", "https://sonarcloud.io")
+    property(
+      "sonar.coverage.jacoco.xmlReportPaths",
+      listOf(
+          file("testing/build/reports/coverage/test/debug/report.xml"),
+          file("robolectric/build/reports/coverage/test/debug/report.xml"),
+          file("appstore/build/reports/coverage/test/debug/report.xml"),
+        )
+        .joinToString(",") { it.absolutePath },
+    )
+  }
+}
+
+// Sonar's Android defaults miss AGP 9's Kotlin bytecode.
+subprojects {
+  plugins.withId("com.android.library") {
+    extensions.configure<SonarExtension>("sonar") {
+      properties {
+        val mainClasses =
+          tasks.named<KotlinCompile>("compileDebugKotlin").get().destinationDirectory.get().asFile
+        val testClasses =
+          tasks
+            .named<KotlinCompile>("compileDebugUnitTestKotlin")
+            .get()
+            .destinationDirectory
+            .get()
+            .asFile
+        property("sonar.java.binaries", mainClasses)
+        property("sonar.binaries", mainClasses)
+        property("sonar.java.test.binaries", testClasses)
+      }
+    }
+  }
 }
 
 dokka {
@@ -155,3 +200,17 @@ tasks.register("lintAll") {
     p.plugins.withId("com.android.library") { dependsOn("${p.path}:lintDebug") }
   }
 }
+
+// No threshold; the per-module JaCoCo HTML lands under */build/reports/coverage/test/debug.
+tasks.register("selfTest") {
+  group = "verification"
+  description = "Run every module's debug unit tests and write JaCoCo coverage reports"
+  dependsOn(
+    ":testing:createDebugUnitTestCoverageReport",
+    ":robolectric:createDebugUnitTestCoverageReport",
+    ":appstore:createDebugUnitTestCoverageReport",
+  )
+}
+
+// selfTest compiles and tests every module, so sonar reuses it instead of rebuilding the classes.
+tasks.named("sonar") { dependsOn("selfTest") }

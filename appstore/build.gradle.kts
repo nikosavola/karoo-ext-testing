@@ -1,6 +1,7 @@
 // The Karoo system app stand-in for emulator tests. A consumer app module with applicationId
 // io.hammerhead.appstore depends on this artifact so karoo-ext's bind by name reaches the fake.
 import java.net.URI
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
 
 plugins {
   alias(libs.plugins.android.library)
@@ -18,6 +19,17 @@ android {
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   publishing { singleVariant("release") { withSourcesJar() } }
+  buildTypes { debug { enableUnitTestCoverage = true } }
+}
+
+// AGP applies JaCoCo late; wait for it, and let JaCoCo see Robolectric's own class loader.
+pluginManager.withPlugin("jacoco") {
+  tasks.withType<Test>().configureEach {
+    extensions.configure<JacocoTaskExtension> {
+      isIncludeNoLocationClasses = true
+      excludes = listOf("jdk.internal.*")
+    }
+  }
 }
 
 val documentationRef = providers.gradleProperty("documentationRef").getOrElse("main")

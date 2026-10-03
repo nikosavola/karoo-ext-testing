@@ -155,15 +155,26 @@ claims the Karoo system app's package name, and the tests would install and run 
 
 `FakeKaroo.system` is process-wide: call `FakeKaroo.system.reset()` before and after each test and never `close()` it, or later tests in the same process bind to a dead fake. The [testing guide](docs/testing-guide.md) has a template.
 
+## Coverage and static analysis
+
+CI uploads JaCoCo coverage and JUnit results to [Codecov](https://codecov.io/gh/nikosavola/karoo-ext-testing). The `SonarQube` workflow runs [SonarQube Cloud](https://sonarcloud.io/summary/new_code?id=nikosavola_karoo-ext-testing) analysis. Both need one-time setup:
+
+- Import the repository through the services' GitHub integrations, granting the SonarQube Cloud GitHub App access for PR decoration. Use project key `nikosavola_karoo-ext-testing` and organization `nikosavola`.
+- Add `CODECOV_TOKEN` and `SONAR_TOKEN` repository secrets, and disable SonarQube Cloud automatic analysis so Gradle CI handles it.
+- Once Codecov is active, set `fail_ci_if_error: true` on the upload steps to catch upload failures.
+
+During setup, Codecov uploads use `fail_ci_if_error: false`, and SonarQube analysis skips when `SONAR_TOKEN` is unset.
+
 ## Local development
 
 Contributor checks, matching CI:
 
 ```bash
 ./gradlew lintAll build test
+./gradlew selfTest
 ```
 
-`./gradlew :dokkaGeneratePublicationHtml` builds the API site into `build/dokka/html`.
+`selfTest` runs each module's debug unit tests and writes a JaCoCo coverage report to `*/build/reports/coverage/test/debug`. There is no coverage threshold: the reports show which fake paths a test actually exercises. `./gradlew :dokkaGeneratePublicationHtml` builds the API site into `build/dokka/html`.
 
 Test the library against your extension before releasing, without publishing:
 

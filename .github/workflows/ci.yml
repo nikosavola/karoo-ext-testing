@@ -32,7 +32,23 @@ jobs:
       - name: Lint, build and test
         env:
           DOC_REF: ${{ github.sha }}
-        run: ./gradlew lintAll build test :dokkaGeneratePublicationHtml -PdocumentationRef="$DOC_REF" --no-daemon
+        run: ./gradlew lintAll build test selfTest :dokkaGeneratePublicationHtml -PdocumentationRef="$DOC_REF" --no-daemon
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: testing/build/reports/coverage/test/debug/report.xml,robolectric/build/reports/coverage/test/debug/report.xml,appstore/build/reports/coverage/test/debug/report.xml
+          disable_search: true
+          fail_ci_if_error: false
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: testing/build/test-results/testDebugUnitTest/TEST-*.xml,robolectric/build/test-results/testDebugUnitTest/TEST-*.xml,appstore/build/test-results/testDebugUnitTest/TEST-*.xml
+          disable_search: true
+          fail_ci_if_error: false
       # Same publications as a release, into a scratch directory, so breakage shows before a tag.
       - name: Rehearse publishing
         run: >-

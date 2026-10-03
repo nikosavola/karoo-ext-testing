@@ -11,6 +11,7 @@ ktfmt = "0.27.0"
 ktlint = "14.2.0"
 detekt = "2.0.0-alpha.6"
 dokka = "2.2.0"
+sonarqube = "7.5.0.8588"
 
 [libraries]
 karoo-ext = { group = "com.github.hammerheadnav", name = "karoo-ext", version.ref = "karoo-ext" }
@@ -27,3 +28,4 @@ ktfmt = { id = "com.ncorti.ktfmt.gradle", version.ref = "ktfmt" }
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
 detekt = { id = "dev.detekt", version.ref = "detekt" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
+sonarqube = { id = "org.sonarqube", version.ref = "sonarqube" }

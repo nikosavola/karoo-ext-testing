@@ -1,0 +1,39 @@
+name: SonarQube
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+permissions: {}
+jobs:
+  build:
+    name: Build and analyze
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # A fork PR gets no secret here, so the analysis step is skipped instead of failing.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Shallow clones hurt blame-based issue attribution.
+          fetch-depth: 0
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: gradle
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platforms;android-37.0 build-tools;36.1.0'
+      # sonar depends on selfTest, so tests and coverage reports are produced once here.
+      - name: Analyze
+        if: ${{ env.SONAR_TOKEN != '' }}
+        run: ./gradlew sonar --no-daemon
