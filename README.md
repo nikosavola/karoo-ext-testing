@@ -167,14 +167,21 @@ During setup, Codecov uploads use `fail_ci_if_error: false`, and SonarQube analy
 
 ## Local development
 
-Contributor checks, matching CI:
+JDK 21 is required. The `justfile` at the repo root wraps the common contributor commands; run `just` to list them.
+
+- `just verify` runs `lintAll`, `build`, `test`, `selfTest` and `:dokkaGeneratePublicationHtml`, the same set the CI workflow checks.
+- `just self-test` runs only the fakes' own debug unit tests and writes JaCoCo coverage to `*/build/reports/coverage/test/debug`. There is no coverage threshold: the reports show which fake paths a test actually exercises.
+- `just docs` builds the Dokka API site into `build/dokka/html`.
+- `just docs-serve` builds the site and serves it on [http://127.0.0.1:8000](http://127.0.0.1:8000) from `build/dokka/html` using Python 3's `http.server`; override the port with `just docs-serve 9000` and stop it with Ctrl-C.
+- `just lint`, `just test` and `just build` run `lintAll`, `test` and `build` on their own.
+
+Without `just`, the Gradle wrapper equivalents:
 
 ```bash
-./gradlew lintAll build test
-./gradlew selfTest
+./gradlew lintAll build test selfTest :dokkaGeneratePublicationHtml  # full CI gate
+./gradlew selfTest  # fakes' own tests + coverage
+./gradlew :dokkaGeneratePublicationHtml  # API site into build/dokka/html
 ```
-
-`selfTest` runs each module's debug unit tests and writes a JaCoCo coverage report to `*/build/reports/coverage/test/debug`. There is no coverage threshold: the reports show which fake paths a test actually exercises. `./gradlew :dokkaGeneratePublicationHtml` builds the API site into `build/dokka/html`.
 
 Test the library against your extension before releasing, without publishing:
 

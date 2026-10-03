@@ -10,10 +10,15 @@ gradle := './gradlew --max-workers=' + max_workers
 default:
     @just --list
 
-# Build all modules and run every check
+# Assemble all modules and run their default checks (lintAll and docs are separate recipes)
 [group('build')]
 build:
     {{ gradle }} build
+
+# Run the full CI verification: lintAll, build, test, selfTest and Dokka
+[group('build')]
+verify:
+    {{ gradle }} lintAll build test selfTest :dokkaGeneratePublicationHtml
 
 # Auto-format Kotlin sources with ktfmt and ktlint
 [group('lint')]
@@ -30,18 +35,33 @@ lint:
 install-hooks:
     prek install
 
-# Run every prek hook against all tracked files. In a jj repo new files aren't in git's index yet,
-# so `--all-files` would skip them.
+# Run every prek hook against repository files
 [group('lint')]
 precommit:
     #!/usr/bin/env bash
     set -euo pipefail
+    # `--all-files` skips new jj files, which aren't in git's index yet.
     if [ -d .jj ]; then jj file list --no-pager | xargs prek run --files; else prek run --all-files; fi
+
+# Build the Dokka API documentation site into build/dokka/html
+[group('docs')]
+docs:
+    {{ gradle }} :dokkaGeneratePublicationHtml
+
+# Build and preview docs on localhost (requires Python 3)
+[group('docs')]
+docs-serve port='8000': docs
+    python3 -m http.server {{ quote(port) }} --bind 127.0.0.1 --directory build/dokka/html
 
 # Run all host-JVM unit tests
 [group('test')]
 test:
     {{ gradle }} test
+
+# Run the fakes' own test suites and write JaCoCo coverage reports
+[group('test')]
+self-test:
+    {{ gradle }} selfTest
 
 # Publish every module to the local Maven repository (~/.m2)
 [group('publish')]
