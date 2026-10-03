@@ -49,6 +49,12 @@ class FakeKarooHost(private val extension: IKarooExtension, private val pump: ()
   private val sessions = LinkedHashMap<String, () -> Unit>()
   private var closed = false
 
+  /**
+   * Starts a stream for [typeId], the short `DataTypeImpl.typeId` the type was declared with (for
+   * example `"my-type"`), not the full wire id from `DataType.dataTypeId(extensionId, typeId)` that
+   * a `DataPoint` carries. The SDK silently ignores an unknown type id and registers no consumer,
+   * so awaiting the recorder then times out.
+   */
   fun startStream(typeId: String): StreamRecorder {
     val recorder = StreamRecorder(UUID.randomUUID().toString(), pump)
     return start(recorder, { extension.startStream(recorder.id, typeId, recorder.handler) }) {
@@ -59,6 +65,12 @@ class FakeKarooHost(private val extension: IKarooExtension, private val pump: ()
   fun stopStream(recorder: StreamRecorder) =
     stopSession(recorder.id) { extension.stopStream(recorder.id) }
 
+  /**
+   * Starts a view for [typeId], the short `DataTypeImpl.typeId` the type was declared with (for
+   * example `"my-view-type"`), not the full wire id from `DataType.dataTypeId(extensionId,
+   * typeId)`. The SDK silently ignores an unknown type id and registers no view, so awaiting the
+   * recorder then times out.
+   */
   fun startView(typeId: String, config: ViewConfig): ViewRecorder {
     val recorder = ViewRecorder(UUID.randomUUID().toString(), pump)
     return start(
