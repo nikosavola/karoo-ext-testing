@@ -60,6 +60,10 @@ subprojects {
       }
     }
   }
+  plugins.withId("com.android.application") {
+    // The integration fixture has no published library code or coverage; keep it out of analysis.
+    extensions.configure<SonarExtension>("sonar") { isSkipProject = true }
+  }
 }
 
 dokka {

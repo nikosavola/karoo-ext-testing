@@ -15,7 +15,7 @@ default:
 build:
     {{ gradle }} build
 
-# Run the full CI verification: lintAll, build, test, selfTest and Dokka
+# Run the full CI verification: lintAll, build, test, selfTest and Dokka; host checks only, not a device run
 [group('build')]
 verify:
     {{ gradle }} lintAll build test selfTest :dokkaGeneratePublicationHtml
@@ -62,6 +62,31 @@ test:
 [group('test')]
 self-test:
     {{ gradle }} selfTest
+
+# Assemble the integration fixture and its instrumentation APKs without installing them
+[group('test')]
+integration-build:
+    {{ gradle }} :integration-test-app:assembleDebug :integration-test-app:assembleDebugAndroidTest
+
+# Run the Android smoke tests on an explicit dedicated emulator serial, e.g. emulator-5554
+[group('test')]
+integration-test serial:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    serial={{ quote(serial) }}
+    if [[ ! "$serial" =~ ^emulator-[0-9]+$ ]]; then
+        echo "serial must look like emulator-5554, got $serial" >&2
+        exit 1
+    fi
+    # Refuse a daily-driver AVD: the fixture claims the Karoo system app's package name.
+    avd="$(adb -s "$serial" emu avd name | sed -n '1s/\r$//p')"
+    if [[ "$avd" != karoo-library-smoke-* ]]; then
+        echo "refusing to run on '$avd': expected a dedicated karoo-library-smoke-* AVD" >&2
+        exit 1
+    fi
+    ANDROID_SERIAL="$serial" \
+        {{ gradle }} :integration-test-app:connectedDebugAndroidTest \
+        -Pandroid.injected.device.serial="$serial"
 
 # Publish every module to the local Maven repository (~/.m2)
 [group('publish')]

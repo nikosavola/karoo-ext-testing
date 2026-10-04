@@ -8,6 +8,21 @@ Recipes for testing a Karoo extension against the fakes in this repo. The fakes 
 
 The examples below describe the current source API. The library is pre-1.0 and the API is still changing, and some of it may not be in a published tag yet, so if a symbol is missing in the tag you pinned, check that tag's published sources.
 
+## Test strategy
+
+Pick the cheapest layer that can catch the bug. The layers differ in scope and environment, not in what they claim:
+
+| Layer | What it covers | How to run |
+| --- | --- | --- |
+| Pure JUnit logic | Data types, helpers and policy with no Android runtime | `just test` |
+| Robolectric | SDK binder contract, `Bundle` and `RemoteViews` marshalling, fake lifecycle | `just test`, `just self-test` |
+| Actual Android SDK, separate process | Binder, service binding and `RemoteViews` over a real emulator | `just integration-test emulator-5554` |
+| Real Karoo hardware | Device and OEM behavior | Manual, not automated here |
+
+- The fakes' own suites own the fake SDK contract and lifecycle. Your project owns its retry logic, layout and resource configuration.
+- The synchronous in-process binder the fakes use is a Robolectric-tier convenience. On an emulator the SDK binder is the real one and its `oneway` callbacks are asynchronous across processes, so use bounded, eventual waits for cancellation instead of immediate cleanup assertions. Not every binder call is `oneway`: a value-returning method such as `libVersion()` blocks for its result.
+- None of the automated layers prove hardware or vendor behavior; the same code path on a real Karoo can differ in timing and OEM implementation.
+
 ## Dependencies
 
 Test doubles are for the test source set. Add the artifact and your own karoo-ext:
@@ -159,6 +174,35 @@ host.bonusAction("my-action")
 
 `Recorder` exposes `items` (read-only), `completed` and `error`. `awaitComplete` fails fast if the extension errored first; `awaitError` fails fast if it completed or timed out. Prefer these over a bare `await` when the contract is completion or failure rather than a specific item.
 
+## Measured RemoteViews layouts
+
+`inflate(context)` applies a frame but does not measure or lay it out, so it reads content, not geometry. To check layout under exact host bounds, use the measured overload with pixel dimensions:
+
+```kotlin
+val root = frame.inflate(context, config) // exact config.viewSize pixels
+val label = root.descendants().filterIsInstance<TextView>().first()
+assertEquals(2, label.layout.lineCount) // or inspect layout geometry
+```
+
+For text measurement and wrapping in Robolectric, annotate the test with `@GraphicsMode(GraphicsMode.Mode.NATIVE)`: legacy graphics can use placeholder text metrics, so a line-count assertion is not meaningful without it. Instrumentation tests run against the real Android framework renderer instead.
+
+`config.viewSize` is in pixels, the caller sets the font on the `RemoteViews` (`setTextViewTextSize`), and the `textSize` field of `ViewConfig` is not interpreted by this helper. A small illustrative matrix, varying alignment, preview and boundaries as much as size:
+
+| gridSize | viewSize (px) | textSize (sp) |
+| --- | --- | --- |
+| 30x15 | 120x90 | 16 |
+| 60x15 | 480x90 | 24 |
+| 30x60 | 240x360 | 40 |
+
+These are examples, not Karoo profiles or thresholds: replace them with the dimensions your target actually reports, and set expectations from the measured view, not from device profiles. Vary font scale, density, locale/RTL and night with Robolectric qualifiers on configured contexts to assert the extension still renders correctly. This helper does not certify the Karoo's own renderer and makes no automatic clipping or accessibility guarantee.
+
+The existing `descendants()` helper also reaches views for semantics checks; `texts()` reads strings only and does not check accessibility. For an icon, assert the extension's chosen content description:
+
+```kotlin
+val icon = root.descendants().filterIsInstance<ImageView>().first()
+assertEquals("Distance", icon.contentDescription)
+```
+
 ## Asserting cleanup after stop
 
 Stopping a session must release the consumer the extension registered. Assert it directly instead of trusting the extension:
@@ -268,6 +312,23 @@ class MyEmulatorTest {
 
 `reset()` clears state and leaves the fake reusable. `close()` is terminal, so never close `FakeKaroo.system` between tests, or every later test in the process binds to a dead fake.
 
+### Dedicated AVD
+
+The fixture app uses the fixed package `io.hammerhead.appstore` and declares an exported stand-in service, so run it only on a dedicated AOSP AVD (no GMS), never a daily-driver or a device with a real Karoo. Create one with the SDK manager, picking the `default` system image for your host architecture (x86_64 on Intel/AMD, arm64-v8a on Apple silicon), or use the same image in Android Studio's Device Manager:
+
+```bash
+sdkmanager "system-images;android-31;default;x86_64"
+```
+
+Name the AVD `karoo-library-smoke-api31` so the smoke recipe accepts it, boot it, and confirm it shows in `adb devices`:
+
+```bash
+just integration-build                # assemble the fixture and instrumentation APKs, no install
+just integration-test emulator-5554   # explicit serial, refused on any AVD not named karoo-library-smoke-*
+```
+
+The app's `release` variant is disabled and its manifest is `testOnly`. The bridged HTTP tests answer from the fake responder and make no external network calls.
+
 ## Toolchain and compatibility
 
 The library is built with Kotlin 2.4.20 and publishes Java 21 bytecode (`jvmToolchain(21)`, class-file major 65) with Kotlin 2.4.0 metadata. Two requirements apply to whichever test configuration consumes it:
@@ -278,3 +339,14 @@ The library is built with Kotlin 2.4.20 and publishes Java 21 bytecode (`jvmTool
 Add the fakes as a test dependency; nothing here requires changing your app's release toolchain. If your project pins an older toolchain, keep the Robolectric setup in its own test configuration or module.
 
 Official references: the Kotlin [Evolution and Compatibility](https://kotlinlang.org/docs/evolution-compatibility.html) guide and the Android [build-tools / D8](https://developer.android.com/build) documentation.
+
+## Further reading
+
+- [Fundamentals of testing Android apps](https://developer.android.com/training/testing/fundamentals)
+- [Test on instrumented devices](https://developer.android.com/training/testing/instrumented-tests)
+- [Architecture recommendations](https://developer.android.com/topic/architecture/recommendations)
+- [Adaptive layouts](https://developer.android.com/develop/ui/views/layout/adaptive-layouts)
+- [Core app quality](https://developer.android.com/docs/quality-guidelines/core-app-quality)
+- [Android Compatibility Definition Document](https://source.android.com/docs/compatibility/cdd)
+
+The stand-in models the Karoo system app's binder contract; it makes no compatibility or conformance claim about any CDD device or OEM build.

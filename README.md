@@ -38,12 +38,13 @@ kotlinx-serialization-json is compileOnly as well; karoo-ext brings it at runtim
 
 ## Coordinates
 
-Each tag is published twice under the same coordinates, so a consumer only picks the repository:
+Each tag is published twice under the same coordinates, so a consumer only picks the repository. The appstore dependency belongs in a dedicated debug fixture app, not your library; the `testImplementation` lines belong in your test source set:
 
 ```kotlin
 testImplementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing:<tag>")
 testImplementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing-robolectric:<tag>")
-implementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing-appstore:<tag>")
+// Debug-only fixture app: release variant disabled, manifest testOnly.
+debugImplementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing-appstore:<tag>")
 ```
 
 JitPack builds the tag on first request (`jitpack.yml`) and needs no credentials:
@@ -136,11 +137,14 @@ android {
 }
 
 dependencies {
-  implementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing-appstore:<tag>")
+  // Debug-only: the fixture disables its release variant and sets android:testOnly in its manifest.
+  debugImplementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing-appstore:<tag>")
   // compileOnly in the library, so the fake app brings it.
-  implementation("com.github.hammerheadnav:karoo-ext:1.1.9")
+  debugImplementation("com.github.hammerheadnav:karoo-ext:1.1.9")
 }
 ```
+
+Scope the stand-in to the debug variant and keep the release variant out of the fixture; a single `implementation` line is not a guard on its own.
 
 Your extension app's debug manifest also needs to see that package, or its bind to
 `ComponentName("io.hammerhead.appstore", "io.hammerhead.appstore.service.AppStoreService")` is filtered out:
@@ -152,8 +156,9 @@ Your extension app's debug manifest also needs to see that package, or its bind 
 ```
 
 Connected tests install on every attached device. Never run them with a real Karoo or phone attached: the fake
-claims the Karoo system app's package name, and the tests would install and run there too. Pin the emulator with
-`ANDROID_SERIAL`.
+claims the Karoo system app's package name, and the tests would install and run there too. Pin the target emulator with
+both `ANDROID_SERIAL` and `-Pandroid.injected.device.serial=<serial>`: the AGP device filter is what selects the device
+for the test task, and the environment variable alone is not enough when several devices are attached.
 
 `FakeKaroo.system` is process-wide: call `FakeKaroo.system.reset()` before and after each test and never `close()` it, or later tests in the same process bind to a dead fake. The [testing guide](docs/testing-guide.md) has a template.
 
@@ -173,6 +178,8 @@ JDK 21 is required. The `justfile` at the repo root wraps the common contributor
 
 - `just verify` runs `lintAll`, `build`, `test`, `selfTest` and `:dokkaGeneratePublicationHtml`, the same set the CI workflow checks.
 - `just self-test` runs only the fakes' own debug unit tests and writes JaCoCo coverage to `*/build/reports/coverage/test/debug`. There is no coverage threshold: the reports show which fake paths a test actually exercises.
+- `just integration-build` assembles the separate-process fixture and its instrumentation APKs without installing them.
+- `just integration-test emulator-5554` runs the smoke tests on an explicit serial, after checking it is a dedicated `karoo-library-smoke-*` AVD. See the testing guide's test strategy section for choosing a layer.
 - `just docs` builds the Dokka API site into `build/dokka/html`.
 - `just docs-serve` builds the site and serves it on [http://127.0.0.1:8000](http://127.0.0.1:8000) from `build/dokka/html` using Python 3's `http.server`; override the port with `just docs-serve 9000` and stop it with Ctrl-C.
 - API styling lives in `docs/styles/alpine.css`, applied by Dokka through the root `customStyleSheets`, so `just docs` and the Pages build pick it up with no extra step.

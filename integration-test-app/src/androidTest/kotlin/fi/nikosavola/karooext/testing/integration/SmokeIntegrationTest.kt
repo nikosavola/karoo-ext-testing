@@ -22,6 +22,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -126,7 +127,12 @@ class SmokeIntegrationTest {
     val recorder = host.startView(SMOKE_VIEW_TYPE, config)
 
     val frame = awaitValue(AWAIT_MS) { recorder.frames.lastOrNull() }
-    val text = frame.inflate(context).texts().single()
+    val root = frame.inflate(context, config)
+    assertEquals(60, root.measuredWidth)
+    assertEquals(90, root.measuredHeight)
+    assertEquals(60, root.width)
+    assertEquals(90, root.height)
+    val text = root.texts().single()
     assertTrue(text, text.contains("view=60x90"))
     assertTrue(text, text.contains("text=24"))
     val pid = text.substringAfter("pid=").substringBefore(' ').toInt()
@@ -143,6 +149,8 @@ class SmokeIntegrationTest {
     val streaming =
       awaitValue(AWAIT_MS) { recorder.items.filterIsInstance<StreamState.Streaming>().lastOrNull() }
     assertEquals(3.0, streaming.dataPoint.singleValue!!, 0.0)
-    assertTrue(FakeKaroo.system.httpRequests.any { it.url == SMOKE_HTTP_URL })
+    val request = FakeKaroo.system.httpRequests.single()
+    assertEquals(SMOKE_HTTP_URL, request.url)
+    assertArrayEquals("ping".toByteArray(), request.body)
   }
 }
