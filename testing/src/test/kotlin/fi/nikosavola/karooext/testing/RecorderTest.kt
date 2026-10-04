@@ -1,6 +1,9 @@
 package fi.nikosavola.karooext.testing
 
+import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -15,12 +18,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
 class RecorderTest {
   private class TestRecorder(pump: () -> Unit = {}) : Recorder<Int>("test", pump) {
     fun emit(item: Int) = record(item)
@@ -145,10 +143,9 @@ class RecorderTest {
   }
 
   @Test
-  fun `a positive sub-millisecond timeout is not truncated to zero`() {
-    // A timeout truncated to zero gives up before the pump can emit.
-    var recorder: TestRecorder? = null
-    recorder = TestRecorder { recorder?.emit(1) }
+  fun `a positive sub-millisecond duration accepts a buffered match`() {
+    val recorder = TestRecorder()
+    recorder.emit(1)
     assertEquals(1, recorder.await(100.microseconds) { it == 1 })
   }
 
@@ -199,5 +196,50 @@ class RecorderTest {
     if (!returned) worker.interrupt()
     assertTrue("await must time out within 2s", returned)
     assertTrue(thrown.get() is IllegalStateException)
+  }
+
+  // Terminal lands while the predicate blocks on an older nonmatch; the buffered match must win.
+  private fun assertMatchWins(terminal: (TestRecorder) -> Unit) {
+    val recorder = TestRecorder()
+    recorder.emit(0)
+    val examining = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val predicate: (Int) -> Boolean = { item ->
+      if (item == 0) {
+        examining.countDown()
+        assertTrue(release.await(5, TimeUnit.SECONDS))
+        false
+      } else {
+        item == 1
+      }
+    }
+    val pool = Executors.newSingleThreadExecutor()
+    try {
+      val result = pool.submit(Callable { recorder.await(5_000, predicate = predicate) })
+      assertTrue(examining.await(5, TimeUnit.SECONDS))
+      recorder.emit(1)
+      terminal(recorder)
+      release.countDown()
+      val value =
+        try {
+          result.get(5, TimeUnit.SECONDS)
+        } catch (e: ExecutionException) {
+          throw e.cause ?: e
+        }
+      assertEquals(1, value)
+    } finally {
+      release.countDown()
+      pool.shutdownNow()
+    }
+  }
+
+  @Test(timeout = 15_000)
+  fun `completion landing during a predicate still returns the match`() {
+    assertMatchWins { it.finish() }
+  }
+
+  @Test(timeout = 15_000)
+  fun `error landing during a predicate still returns the match`() {
+    assertMatchWins { it.failWith("boom") }
   }
 }

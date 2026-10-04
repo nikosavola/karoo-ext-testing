@@ -374,10 +374,12 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
     require(after >= 0) { "after must be nonnegative, was $after" }
     val start = TimeSource.Monotonic.markNow()
     while (true) {
+      // Read the volatile terminal flag first, so a match appended before the terminal still wins.
+      val terminal = terminalFailure()
       recorded.drop(after).firstOrNull(predicate)?.let {
         return it
       }
-      terminalFailure()?.let { throw IllegalStateException(it) }
+      terminal?.let { throw IllegalStateException(it) }
       val elapsed = start.elapsedNow().inWholeNanoseconds
       if (elapsed >= timeoutNanos) {
         throw IllegalStateException(timeoutMessage(display, "a matching item"))
