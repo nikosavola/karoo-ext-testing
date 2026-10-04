@@ -10,13 +10,43 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.RemoteViews
 import android.widget.TextView
+import io.hammerhead.karooext.models.ViewConfig
 import kotlin.math.abs
 
 /**
- * Inflates a field frame the way the Karoo does, into a host container. [context] must resolve the
- * RemoteViews' resource package; an Android or Robolectric context for that package works.
+ * Applies this frame into a host [FrameLayout] without measuring or laying it out. [context] must
+ * resolve the RemoteViews' resource package; an Android or Robolectric context for that package
+ * works.
  */
 fun RemoteViews.inflate(context: Context): View = apply(context, FrameLayout(context))
+
+/**
+ * Applies, exactly measures and lays out this frame under [widthPx] by [heightPx] host bounds, in
+ * pixels, with the caller's [context] configuration and no font override, so a test can check
+ * layout geometry and content. Does not certify the Karoo's own renderer.
+ *
+ * @throws IllegalArgumentException if [widthPx] or [heightPx] is not positive.
+ */
+fun RemoteViews.inflate(context: Context, widthPx: Int, heightPx: Int): View {
+  require(widthPx > 0) { "widthPx must be positive, was $widthPx" }
+  require(heightPx > 0) { "heightPx must be positive, was $heightPx" }
+  val root = apply(context, FrameLayout(context))
+  root.measure(
+    View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+    View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY),
+  )
+  root.layout(0, 0, widthPx, heightPx)
+  return root
+}
+
+/**
+ * Uses [ViewConfig.viewSize] for the exact host bounds. Only the size is read: `textSize` is
+ * already applied to the RemoteViews and the other config fields are not interpreted here.
+ *
+ * @throws IllegalArgumentException if `config.viewSize` has a non-positive dimension.
+ */
+fun RemoteViews.inflate(context: Context, config: ViewConfig): View =
+  inflate(context, config.viewSize.first, config.viewSize.second)
 
 /** This view and all its descendants, depth first in child order; the root is included. */
 fun View.descendants(): Sequence<View> = sequence {
