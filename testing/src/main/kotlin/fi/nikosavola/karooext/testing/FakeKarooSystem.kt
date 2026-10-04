@@ -55,8 +55,11 @@ private const val SERIAL = "fake"
  * either later does not affect a request already in flight. [reset] and [removeEventConsumer]
  * invalidate in-flight requests and [close] is terminal. Registration, cancellation and delivery
  * share one lock, so a cancel that returns before a delivery starts prevents it, but a delivery
- * already inside a handler completes. Response arrival order is only guaranteed when `httpThreads`
- * is one; with several threads two answers can interleave.
+ * already inside a handler completes. Ordinary [publish] shares that lock and drops a consumer that
+ * a callback cancelled, reset or replaced; sticky setters store and publish under it too. Response
+ * arrival order is only guaranteed when `httpThreads` is one; with several threads two answers can
+ * interleave. After [close], the setters and [info] stay usable and update stored state, but
+ * publication delivers to nothing.
  *
  * [completeConsumer] and [errorConsumer] drive an ordinary consumer's terminal callbacks for tests
  * that need the real SDK's auto-unregister path; they are a raw hook, not a device guarantee.
@@ -280,15 +283,19 @@ class FakeKarooSystem(
   /** Publishes a location and stores it for late consumers. [orientation] is null when unknown. */
   fun setLocation(lat: Double, lng: Double, orientation: Double? = null) {
     val event = OnLocationChanged(lat, lng, orientation)
-    location = event
-    publish(OnLocationChanged.Params, event)
+    lifecycleLock.withLock {
+      location = event
+      publishLocked(OnLocationChanged.Params, event)
+    }
   }
 
   /** Publishes a navigation state and stores it as the latest, replayed to new consumers. */
   fun setNavigation(state: OnNavigationState.NavigationState) {
     val event = OnNavigationState(state)
-    navigation = event
-    publish(OnNavigationState.Params, event)
+    lifecycleLock.withLock {
+      navigation = event
+      publishLocked(OnNavigationState.Params, event)
+    }
   }
 
   /**
@@ -320,14 +327,18 @@ class FakeKarooSystem(
 
   /** Publishes a ride state and stores it as the latest, replayed to new consumers. */
   fun setRideState(state: RideState) {
-    rideState = state
-    publish(RideState.Params, state)
+    lifecycleLock.withLock {
+      rideState = state
+      publishLocked(RideState.Params, state)
+    }
   }
 
   /** Publishes a user profile and stores it as the latest, replayed to new consumers. */
   fun setUserProfile(profile: UserProfile) {
-    userProfile = profile
-    publish(UserProfile.Params, profile)
+    lifecycleLock.withLock {
+      userProfile = profile
+      publishLocked(UserProfile.Params, profile)
+    }
   }
 
   /** Shows a ride page holding [dataTypeIds]; set [mapPage] for the map page. */
@@ -339,8 +350,10 @@ class FakeKarooSystem(
           elements = dataTypeIds.map { RideProfile.Page.Element(it, FULL_GRID to FULL_GRID) },
         )
       )
-    activePage = page
-    publish(ActiveRidePage.Params, page)
+    lifecycleLock.withLock {
+      activePage = page
+      publishLocked(ActiveRidePage.Params, page)
+    }
   }
 
   /**
@@ -358,8 +371,10 @@ class FakeKarooSystem(
         "Streaming point id ${state.dataPoint.dataTypeId} does not match $dataTypeId"
       }
     }
-    streamStates[dataTypeId] = state
-    publish(OnStreamState.StartStreaming(dataTypeId), OnStreamState(state))
+    lifecycleLock.withLock {
+      streamStates[dataTypeId] = state
+      publishLocked(OnStreamState.StartStreaming(dataTypeId), OnStreamState(state))
+    }
   }
 
   /**
@@ -380,10 +395,20 @@ class FakeKarooSystem(
 
   /**
    * Sends [event] to consumers registered with [params], and only those. Not sticky: laps and other
-   * one-shot events are not replayed to later consumers.
+   * one-shot events are not replayed to later consumers. A consumer cancelled in a callback is
+   * skipped too, so a removed consumer does not receive the event.
    */
   fun publish(params: KarooEventParams, event: KarooEvent) {
-    consumers.values.filter { it.params == params }.forEach { send(it.handler, event) }
+    lifecycleLock.withLock { publishLocked(params, event) }
+  }
+
+  private fun publishLocked(params: KarooEventParams, event: KarooEvent) {
+    if (closed) return
+    val snapshot = consumers.entries.filter { it.value.params == params }.map { it.key to it.value }
+    for ((id, consumer) in snapshot) {
+      // Callbacks reenter and may cancel, reset or replace consumers, so recheck each one.
+      if (!closed && consumers[id] === consumer) send(consumer.handler, event)
+    }
   }
 
   /** Effects of [T] recorded so far, backed by [effects]. */
