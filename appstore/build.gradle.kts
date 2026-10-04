@@ -58,7 +58,7 @@ kotlin { jvmToolchain(21) }
 
 dependencies {
   compileOnly(libs.karoo.ext)
-  implementation(project(":testing"))
+  api(project(":testing"))
   testImplementation(libs.junit)
   testImplementation(libs.robolectric)
   testImplementation(libs.androidx.test.core)
