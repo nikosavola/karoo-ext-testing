@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Bound explicitly by the instrumentation test, in its own process. -->
+        <service
+            android:name=".SmokeExtension"
+            android:exported="false"
+            android:process=":extension" />
+    </application>
+</manifest>

@@ -36,3 +36,5 @@ include(":testing")
 include(":robolectric")
 
 include(":appstore")
+
+include(":integration-test-app")

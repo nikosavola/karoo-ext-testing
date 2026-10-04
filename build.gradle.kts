@@ -11,6 +11,7 @@ buildscript { dependencies { classpath("org.jetbrains.kotlin:kotlin-gradle-plugi
 
 plugins {
   alias(libs.plugins.android.library) apply false
+  alias(libs.plugins.android.application) apply false
   alias(libs.plugins.kotlin.serialization) apply false
   alias(libs.plugins.ktfmt) apply false
   alias(libs.plugins.ktlint) apply false
@@ -214,6 +215,7 @@ tasks.register("lintAll") {
       "${p.path}:detekt",
     )
     p.plugins.withId("com.android.library") { dependsOn("${p.path}:lintDebug") }
+    p.plugins.withId("com.android.application") { dependsOn("${p.path}:lintDebug") }
   }
 }
 
