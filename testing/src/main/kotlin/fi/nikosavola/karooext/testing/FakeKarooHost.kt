@@ -458,7 +458,8 @@ sealed interface ViewUpdate {
   /**
    * A rendered frame delivered under the view key.
    *
-   * @property views the frame the extension sent.
+   * @property views the frame the extension sent, snapshotted at receipt so later sender mutation
+   *   does not rewrite it.
    */
   data class Frame(val views: RemoteViews) : ViewUpdate
 
@@ -491,7 +492,7 @@ class ViewRecorder(id: String, pump: () -> Unit) : Recorder<ViewUpdate>(id, pump
         bundle.classLoader = RemoteViews::class.java.classLoader
         val views = remoteViews(bundle)
         if (views != null) {
-          record(ViewUpdate.Frame(views))
+          record(ViewUpdate.Frame(views.snapshot()))
         } else {
           bundle.serializableFromBundle<ViewEvent>()?.let { record(ViewUpdate.Event(it)) }
         }

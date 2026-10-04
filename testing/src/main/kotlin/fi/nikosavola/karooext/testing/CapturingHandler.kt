@@ -19,7 +19,10 @@ import kotlin.time.TimeSource
  * while still recording late callbacks; this handler is the raw log for hand-rolled assertions.
  */
 class CapturingHandler : IHandler.Stub() {
-  /** Every frame delivered under the view key, in arrival order. A live log. */
+  /**
+   * Every frame delivered under the view key, in arrival order. A live log of Parcel snapshots
+   * taken at receipt, so a later sender mutation cannot rewrite a frame here.
+   */
   val views = CopyOnWriteArrayList<RemoteViews>()
 
   /** Every non-frame bundle, undecoded, in arrival order. A live log. */
@@ -36,7 +39,7 @@ class CapturingHandler : IHandler.Stub() {
   /** Routes a frame to [views] and any other bundle to [bundles]. */
   override fun onNext(bundle: Bundle) {
     val view = remoteViews(bundle)
-    if (view != null) views += view else bundles += bundle
+    if (view != null) views += view.snapshot() else bundles += bundle
   }
 
   /** Appends [msg] to [errors], mapping null to an empty string. */
