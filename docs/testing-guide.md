@@ -34,6 +34,8 @@ dependencies {
 }
 ```
 
+Most extensions already depend on karoo-ext from Hammerhead's GitHub Packages feed as `io.hammerhead:karoo-ext`; keep that line as it is and add only the karoo-ext-testing artifacts.
+
 `karoo-ext` is `compileOnly` inside the library, so it is never pulled in transitively; bring your own, since some projects use different coordinates (`io.hammerhead:karoo-ext`). kotlinx-serialization-json is `compileOnly` too and comes at runtime with karoo-ext.
 
 For the Robolectric binding rule, add the robolectric artifact and the test libraries it needs. Like karoo-ext, JUnit, Robolectric and androidx.test:core are `compileOnly` in the library modules, so they are never brought in transitively and nothing pulls them in for you. Add them explicitly (versions below are what this repo builds against):
@@ -82,6 +84,50 @@ class MyFieldTest {
 
 If your project's own logic tests already run on the JUnit Platform (JUnit 5), you do not have to split them into a separate module. JUnit 4 tests can run on the JUnit Platform through the JUnit Vintage engine, so a single module with both engines on the test classpath works fine; that is a normal modern mixed setup. The Robolectric runner is a JUnit 4 runner, so whichever route you take, the binder tests have to run somewhere JUnit 4 can see them: Vintage on the platform, or a dedicated JUnit 4 task or source set.
 
+## Apps that connect in Application.onCreate
+
+Many extensions create `KarooSystemService` and call `connect` from `Application.onCreate`, often through a Koin or Hilt singleton. Robolectric creates the application before any JUnit rule runs, so that bind finds no fake and the SDK crashes on a null `ComponentName`. Install the fake from a test application instead, before `super.onCreate()`; the next `FakeKarooRule` adopts the same system:
+
+```kotlin
+class TestApplication : Application() {
+  override fun onCreate() {
+    FakeKarooBinding.installEarly(this)
+    super.onCreate()
+    startKoin { androidContext(this@TestApplication); modules(appModule) }
+  }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = TestApplication::class)
+class MyDeviceTest {
+  @get:Rule val karoo = FakeKarooRule()
+
+  @After
+  fun tearDown() {
+    // Rules wrap @After: destroy the services before Koin goes away, then reset Koin, since
+    // Robolectric creates a fresh application per test.
+    karoo.close()
+    stopKoin()
+  }
+}
+```
+
+If your `Application` class is `open`, subclass it instead of repeating its setup.
+
+## Waiting on state outside a recorder
+
+Recorders pump the main looper while they wait. When the thing to wait for is something else, such as a value the extension persisted to DataStore, use `karoo.awaitValue { ... }`: it pumps too. A bare `awaitValue` without an `idle` pump never runs the SDK's connect callback, so the extension never starts.
+
+```kotlin
+karoo.system.responder = HttpResponses.status(503)
+karoo.host<MyExtension>()
+val stats = karoo.awaitValue { runBlocking { karoo.app.streamStats().first() }.takeIf { it.failedRequestAt != null } }
+```
+
+Robolectric reuses its class loader across tests in a class, so static caches survive from one test to the next. `preferencesDataStore` is one: clear it in `@Before` (`context.dataStore.edit { it.clear() }`) or a value written by one test leaks into the next.
+
+When a test fails, `FakeKarooRule` attaches a `FakeKarooState` suppressed exception listing the registered consumers, stream states and HTTP requests at the time of the failure, so a recorder timeout shows what the extension was actually waiting on. `karoo.system.describe()` gives the same text on demand.
+
 ## Streams and built-in sensor data
 
 The fake replays the latest `StreamState` to a consumer that registers late. Treat that as fake policy, not a device guarantee: the SDK documents sticky replay only for `RideState` and `UserProfile`, not for stream state. `setDataPoint` is the short form for a `Streaming` point.
@@ -105,6 +151,16 @@ stream.await(10_000) { it is StreamState.Streaming && it.dataPoint.singleValue =
 ```
 
 `setDataPoint(id, value)` is also available as a short form; it wraps `value` under `DataType.Field.SINGLE`, which is fine for a custom data type but not the native power field. A `Streaming` point whose id does not match the data type id is rejected as a test bug.
+
+`setLocation(lat, lng, orientation, accuracy)` publishes both `OnLocationChanged` and a `DataType.Type.LOCATION` stream point with the `LOC_*` fields, since extensions read either; accuracy defaults to a good 5 m fix because some extensions drop fixes above a threshold.
+
+An extension that `combine`s several streams waits until every one of them has emitted. When the test only cares about some, set `karoo.system.initialStreamState = StreamState.NotAvailable` (or `Searching`) so a data type with no state yet answers with that instead of staying silent. It is off by default and fake policy: the device's first state for an idle type is not documented.
+
+State-like events without a typed setter, such as `ActiveRideProfile`, `SavedDevices`, `Bikes`, `OnGlobalPOIs` or `OnMapZoomLevel`, are stored and replayed with `setSticky(params, event)`. `setActiveRideProfile(profile)` is the typed form for the common indoor check:
+
+```kotlin
+karoo.system.setActiveRideProfile(RideProfile("indoor", "Indoor", emptyList(), true, "indoor_cycling", "road"))
+```
 
 For one-shot, non-sticky events that the device does not replay, publish by params. `Lap` has no data type id and its params (`Lap.Params`) carry no keyed id either, so it is a plain params-keyed event:
 
@@ -331,10 +387,7 @@ The app's `release` variant is disabled and its manifest is `testOnly`. The brid
 
 ## Toolchain and compatibility
 
-The library is built with Kotlin 2.4.20 and publishes Java 21 bytecode (`jvmToolchain(21)`, class-file major 65) with Kotlin 2.4.0 metadata. Two requirements apply to whichever test configuration consumes it:
-
-- The test source set needs a Kotlin compiler 2.3 or newer to read the metadata; older compilers fail with a metadata version error. That 2.3 floor is what was observed in testing, not a guarantee for every setup.
-- The Android build needs a D8/R8 new enough to dex Java 21 class files (recent build-tools). Older build-tools fail with "Unsupported class file major version 65" even when the compiler is new enough.
+The library is built with Kotlin 2.4.20 on JDK 21 but publishes Java 8 bytecode (class-file major 52) with Kotlin 2.4.0 metadata, so a test source set targeting JVM 1.8 or 11 can still inline the reified helpers such as `karoo.host<T>()`. The test source set needs a Kotlin compiler 2.3 or newer to read the metadata; older compilers fail with a metadata version error. That floor was observed with real extensions on Kotlin 2.3 and 2.4, not a guarantee for every setup. Robolectric itself needs a JDK 17 or newer test runtime.
 
 Add the fakes as a test dependency; nothing here requires changing your app's release toolchain. If your project pins an older toolchain, keep the Robolectric setup in its own test configuration or module.
 

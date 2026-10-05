@@ -105,9 +105,14 @@ after: it closes every host (stopping its sessions), destroys their services, th
 not want the rule, call `FakeKarooBinding.install(application, system)` yourself and pass
 `RobolectricPump.invoke()` as a recorder's `pump` so main-thread work runs while a test blocks.
 
+An app that connects to Karoo in `Application.onCreate` (a Koin or Hilt singleton, say) binds before any rule runs;
+call `FakeKarooBinding.installEarly(this)` from a test `Application` registered with `@Config(application = ...)`
+and the rule adopts that system. See the [testing guide](docs/testing-guide.md).
+
 `FakeKarooSystem` replays the current value to a consumer that registers late: location, navigation, ride state,
-user profile, active page and stream state. The SDK documents this replay only for ride state and user profile; the
-rest is fake policy chosen for deterministic tests. Set them with `setLocation`, `setNavigation`, `setRoute` (a
+user profile, active page, active ride profile and stream state. The SDK documents this replay only for ride state and user profile; the
+rest is fake policy chosen for deterministic tests. Set them with `setLocation` (which also publishes a LOCATION
+stream point), `setActiveRideProfile`, `setSticky(params, event)` for other state-like events, `setNavigation`, `setRoute` (a
 polyline the ride app would follow, with its length measured along it), `setRideState`, `setUserProfile` and
 `showPage`; publish one-shot events keyed by params with `publish(params, event)`, and drive built-in data types with
 `setStreamState(id, state)` or `setDataPoint(id, value)`. `reset()` clears everything back to defaults and stays
