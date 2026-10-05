@@ -8,6 +8,7 @@ import io.hammerhead.karooext.aidl.IKarooSystem
 import io.hammerhead.karooext.internal.bundleWithSerializable
 import io.hammerhead.karooext.internal.serializableFromBundle
 import io.hammerhead.karooext.models.ActiveRidePage
+import io.hammerhead.karooext.models.ActiveRideProfile
 import io.hammerhead.karooext.models.DataPoint
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.HardwareType
@@ -41,6 +42,7 @@ private const val BRIDGE_MAX_BODY = 100_000
 private const val DEFAULT_HTTP_THREADS = 1
 private const val FULL_GRID = 60
 private const val SERIAL = "fake"
+private const val DEFAULT_ACCURACY_METERS = 5.0
 
 /**
  * The Karoo system end of the karoo-ext binder: what `KarooSystemService` in an extension talks to.
@@ -110,6 +112,16 @@ class FakeKarooSystem(
   private val consumers = ConcurrentHashMap<String, Consumer>()
   private val pendingHttp = ConcurrentHashMap<String, PendingHttp>()
   private val streamStates = ConcurrentHashMap<String, StreamState>()
+  private val stickyEvents = ConcurrentHashMap<KarooEventParams, KarooEvent>()
+
+  /**
+   * Sent to a new stream consumer whose data type has no state yet, or nothing when null (the
+   * default). Set it to [StreamState.Searching] or [StreamState.NotAvailable] when the extension
+   * combines several streams and would otherwise wait forever on one the test does not care about.
+   * Fake policy: the device's first state for an idle data type is not documented. [reset] clears
+   * it.
+   */
+  @Volatile var initialStreamState: StreamState? = null
 
   /**
    * Largest response body the bridge accepts; a larger body becomes a status 0 error. Captured per
@@ -280,12 +292,42 @@ class FakeKarooSystem(
       true
     }
 
-  /** Publishes a location and stores it for late consumers. [orientation] is null when unknown. */
-  fun setLocation(lat: Double, lng: Double, orientation: Double? = null) {
+  /**
+   * Publishes a location and stores it for late consumers, both as [OnLocationChanged] and as a
+   * [DataType.Type.LOCATION] stream point, since extensions read either.
+   *
+   * @param lat latitude in degrees.
+   * @param lng longitude in degrees.
+   * @param orientation bearing in degrees, or null when unknown, which leaves
+   *   [DataType.Field.LOC_BEARING] out of the point.
+   * @param accuracy horizontal accuracy in meters for [DataType.Field.LOC_ACCURACY]. Some
+   *   extensions drop fixes above a threshold, so the default is a good fix.
+   */
+  fun setLocation(
+    lat: Double,
+    lng: Double,
+    orientation: Double? = null,
+    accuracy: Double = DEFAULT_ACCURACY_METERS,
+  ) {
     val event = OnLocationChanged(lat, lng, orientation)
+    val point =
+      DataPoint(
+        DataType.Type.LOCATION,
+        buildMap {
+          put(DataType.Field.LOC_LATITUDE, lat)
+          put(DataType.Field.LOC_LONGITUDE, lng)
+          put(DataType.Field.LOC_ACCURACY, accuracy)
+          orientation?.let { put(DataType.Field.LOC_BEARING, it) }
+        },
+      )
     lifecycleLock.withLock {
       location = event
       publishLocked(OnLocationChanged.Params, event)
+      streamStates[DataType.Type.LOCATION] = StreamState.Streaming(point)
+      publishLocked(
+        OnStreamState.StartStreaming(DataType.Type.LOCATION),
+        OnStreamState(StreamState.Streaming(point)),
+      )
     }
   }
 
@@ -356,6 +398,34 @@ class FakeKarooSystem(
     }
   }
 
+  /** Publishes the active ride profile, e.g. an indoor one, and replays it to new consumers. */
+  fun setActiveRideProfile(profile: RideProfile) =
+    setSticky(ActiveRideProfile.Params, ActiveRideProfile(profile))
+
+  /**
+   * Stores [event] as the latest value for [params], publishes it and replays it to consumers that
+   * register later. For state-like events without a typed setter here, such as `SavedDevices`,
+   * `Bikes`, `OnGlobalPOIs` or `OnMapZoomLevel`. Use [publish] for one-shot events like laps.
+   *
+   * @throws IllegalArgumentException if [params] has a typed setter, which owns its sticky state.
+   */
+  fun setSticky(params: KarooEventParams, event: KarooEvent) {
+    require(!params.hasTypedSetter()) { "Use the typed setter for $params" }
+    lifecycleLock.withLock {
+      stickyEvents[params] = event
+      publishLocked(params, event)
+    }
+  }
+
+  private fun KarooEventParams.hasTypedSetter() =
+    this == OnLocationChanged.Params ||
+      this == OnNavigationState.Params ||
+      this == RideState.Params ||
+      this == UserProfile.Params ||
+      this == ActiveRidePage.Params ||
+      this is OnStreamState.StartStreaming ||
+      this is OnHttpResponse.MakeHttpRequest
+
   /**
    * Stores the latest [state] for [dataTypeId] and sends it to every consumer waiting on
    * [OnStreamState.StartStreaming] for that id. A consumer that registers later still gets it. A
@@ -411,6 +481,26 @@ class FakeKarooSystem(
     }
   }
 
+  /**
+   * A readable snapshot of what the extension registered and sent: consumers, pending and recorded
+   * HTTP requests, stream states and effects. For failure messages, not for assertions.
+   */
+  fun describe(): String = buildString {
+    appendLine("FakeKarooSystem${if (closed) " (closed)" else ""}")
+    appendLine("  consumers: ${consumerParams.map { it.label() }.ifEmpty { "none" }}")
+    appendLine("  stream states: ${streams.ifEmpty { "none" }}")
+    appendLine(
+      "  http requests: ${httpRequests.map { "${it.method} ${it.url}" }.ifEmpty { "none" }}"
+    )
+    appendLine("  pending http: $pendingHttpCount")
+    append("  effects: ${effects.ifEmpty { "none" }}")
+  }
+
+  // Object params such as RideState.Params print as a bare "Params".
+  private fun KarooEventParams.label(): String =
+    toString().takeUnless { it == "Params" }
+      ?: javaClass.name.substringAfterLast('.').replace('$', '.')
+
   /** Effects of [T] recorded so far, backed by [effects]. */
   inline fun <reified T : KarooEffect> effectsOf(): List<T> = effects.filterIsInstance<T>()
 
@@ -429,6 +519,8 @@ class FakeKarooSystem(
       consumers.clear()
       pendingHttp.clear()
       streamStates.clear()
+      stickyEvents.clear()
+      initialStreamState = null
       location = null
       navigation = OnNavigationState(OnNavigationState.NavigationState.Idle)
       rideState = RideState.Idle
@@ -467,8 +559,9 @@ class FakeKarooSystem(
       RideState.Params -> rideState
       UserProfile.Params -> userProfile
       ActiveRidePage.Params -> activePage
-      is OnStreamState.StartStreaming -> streamStates[params.dataTypeId]?.let { OnStreamState(it) }
-      else -> null
+      is OnStreamState.StartStreaming ->
+        (streamStates[params.dataTypeId] ?: initialStreamState)?.let { OnStreamState(it) }
+      else -> stickyEvents[params]
     }
 
   @Suppress("TooGenericExceptionCaught")
