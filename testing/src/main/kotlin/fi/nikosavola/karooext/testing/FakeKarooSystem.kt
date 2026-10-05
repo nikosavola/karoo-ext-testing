@@ -19,6 +19,7 @@ import io.hammerhead.karooext.models.KarooEventParams
 import io.hammerhead.karooext.models.KarooInfo
 import io.hammerhead.karooext.models.OnHttpResponse
 import io.hammerhead.karooext.models.OnLocationChanged
+import io.hammerhead.karooext.models.OnMapZoomLevel
 import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.OnStreamState
 import io.hammerhead.karooext.models.RideProfile
@@ -401,6 +402,9 @@ class FakeKarooSystem(
   /** Publishes the active ride profile, e.g. an indoor one, and replays it to new consumers. */
   fun setActiveRideProfile(profile: RideProfile) =
     setSticky(ActiveRideProfile.Params, ActiveRideProfile(profile))
+
+  /** Publishes the map zoom level and replays it to new consumers. */
+  fun setMapZoom(level: Double) = setSticky(OnMapZoomLevel.Params, OnMapZoomLevel(level))
 
   /**
    * Stores [event] as the latest value for [params], publishes it and replays it to consumers that

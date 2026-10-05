@@ -2,6 +2,7 @@ package fi.nikosavola.karooext.testing
 
 import kotlin.math.asin
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.roundToLong
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -29,6 +30,40 @@ fun encodePolyline(points: List<Pair<Double, Double>>): String = buildString {
     lastLat = latE5
     lastLng = lngE5
   }
+}
+
+/**
+ * Decodes a Google encoded polyline into lat to lng pairs, the inverse of [encodePolyline].
+ * [precision] is the number of decimals: 5 for map polylines, 1 for the elevation profile in
+ * `OnNavigationState`, where the pairs are distance to elevation instead.
+ *
+ * @throws IllegalArgumentException if [encoded] ends in the middle of a value or a point.
+ */
+fun decodePolyline(encoded: String, precision: Int = 5): List<Pair<Double, Double>> {
+  val scale = 10.0.pow(precision)
+  val points = mutableListOf<Pair<Double, Double>>()
+  var index = 0
+  var lat = 0L
+  var lng = 0L
+
+  fun next(): Long {
+    var result = 0L
+    var shift = 0
+    while (true) {
+      require(index < encoded.length) { "truncated polyline at index $index" }
+      val chunk = encoded[index++].code - ASCII_OFFSET
+      result = result or ((chunk and CHUNK_MASK).toLong() shl shift)
+      shift += CHUNK_BITS
+      if (chunk < CONTINUATION) break
+    }
+    return if (result and 1L != 0L) (result shr 1).inv() else result shr 1
+  }
+  while (index < encoded.length) {
+    lat += next()
+    lng += next()
+    points += lat / scale to lng / scale
+  }
+  return points
 }
 
 private fun StringBuilder.appendValue(delta: Long) {

@@ -10,8 +10,13 @@ import io.hammerhead.karooext.internal.serializableFromBundle
 import io.hammerhead.karooext.models.Device
 import io.hammerhead.karooext.models.DeviceEvent
 import io.hammerhead.karooext.models.FitEffect
+import io.hammerhead.karooext.models.HidePolyline
+import io.hammerhead.karooext.models.HideSymbols
 import io.hammerhead.karooext.models.MapEffect
+import io.hammerhead.karooext.models.ShowPolyline
+import io.hammerhead.karooext.models.ShowSymbols
 import io.hammerhead.karooext.models.StreamState
+import io.hammerhead.karooext.models.Symbol
 import io.hammerhead.karooext.models.ViewConfig
 import io.hammerhead.karooext.models.ViewEvent
 import java.io.Closeable
@@ -21,6 +26,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
 private const val VIEW_KEY = "view"
@@ -323,6 +329,45 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
     awaitNanos(timeout.requireTimeoutNanos(), timeout.toString(), after, predicate)
 
   /**
+   * [await] for the first item of type [E] matching [predicate], returned as [E].
+   *
+   * @throws IllegalStateException as [await] does.
+   */
+  inline fun <reified E : T> awaitOf(
+    timeoutMs: Long,
+    after: Int = 0,
+    crossinline predicate: (E) -> Boolean = { true },
+  ): E = await(timeoutMs, after) { it is E && predicate(it) } as E
+
+  /**
+   * Waits until no new item has arrived for [quietMs], for extensions that send a burst of updates
+   * with no end marker, then returns everything recorded. Real elapsed time.
+   *
+   * @throws IllegalArgumentException if [quietMs] is not positive or [timeoutMs] is negative.
+   * @throws IllegalStateException if items keep arriving for [timeoutMs].
+   */
+  fun awaitQuiet(quietMs: Long, timeoutMs: Long): List<T> {
+    require(quietMs > 0) { "quietMs must be positive, was $quietMs" }
+    timeoutLabel(timeoutMs)
+    val quietNanos = TimeUnit.MILLISECONDS.toNanos(quietMs)
+    val deadline = TimeSource.Monotonic.markNow() + timeoutMs.milliseconds
+    var size = recorded.size
+    var since = TimeSource.Monotonic.markNow()
+    while (since.elapsedNow().inWholeNanoseconds < quietNanos) {
+      if (deadline.hasPassedNow()) {
+        throw IllegalStateException(timeoutMessage("${timeoutMs}ms", "$quietMs ms without items"))
+      }
+      pump()
+      lock.withLock { arrived.awaitNanos(POLL_NANOS) }
+      if (recorded.size != size) {
+        size = recorded.size
+        since = TimeSource.Monotonic.markNow()
+      }
+    }
+    return items
+  }
+
+  /**
    * Waits until the session completes or an error arrives, then returns when completed with no
    * error. Throws if an error is present when the wait ends, even when completion also became true.
    * The error is checked once as the wait returns, so it does not promise to catch an error that
@@ -537,6 +582,28 @@ class MapRecorder(id: String, pump: () -> Unit) : Recorder<MapEffect>(id, pump) 
 
   /** Effects of [T] recorded so far, backed by [effects]. */
   inline fun <reified T : MapEffect> effectsOf(): List<T> = items.filterIsInstance<T>()
+
+  /** Polylines still shown after replaying every show and hide in order, by id. */
+  fun visiblePolylines(): Map<String, ShowPolyline> = buildMap {
+    for (effect in items) {
+      when (effect) {
+        is ShowPolyline -> put(effect.id, effect)
+        is HidePolyline -> remove(effect.id)
+        else -> Unit
+      }
+    }
+  }
+
+  /** Symbols still shown after replaying every show and hide in order, by id. */
+  fun visibleSymbols(): Map<String, Symbol> = buildMap {
+    for (effect in items) {
+      when (effect) {
+        is ShowSymbols -> effect.symbols.forEach { put(it.id, it) }
+        is HideSymbols -> effect.symbolIds.forEach { remove(it) }
+        else -> Unit
+      }
+    }
+  }
 }
 
 /** A scan handler receives decoded [Device]s advertised by the extension. */

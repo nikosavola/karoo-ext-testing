@@ -18,7 +18,7 @@ Three artifacts, all published together:
 - `karoo-ext-testing`: `FakeKarooSystem` (an in-process `IKarooSystem`, `Closeable`), `FakeKarooHost` and its
   recorders for streams, views, maps, scans, device connections and FIT, HTTP responders (`HttpResponder`,
   `HttpResponses`, `SequenceResponder`, `RoutingResponder`, `LiveResponder`), `CapturingHandler` and `awaitValue`,
-  RemoteViews inspection helpers, and `encodePolyline`.
+  RemoteViews inspection helpers, and `encodePolyline`/`decodePolyline`.
 - `karoo-ext-testing-robolectric`: `FakeKarooBinding.install` to point KarooSystemService's bind at a
   `FakeKarooSystem`, `RobolectricPump`, and a generic `FakeKarooRule`.
 - `karoo-ext-testing-appstore`: an Android library whose manifest declares the exported
@@ -112,7 +112,7 @@ and the rule adopts that system. See the [testing guide](docs/testing-guide.md).
 `FakeKarooSystem` replays the current value to a consumer that registers late: location, navigation, ride state,
 user profile, active page, active ride profile and stream state. The SDK documents this replay only for ride state and user profile; the
 rest is fake policy chosen for deterministic tests. Set them with `setLocation` (which also publishes a LOCATION
-stream point), `setActiveRideProfile`, `setSticky(params, event)` for other state-like events, `setNavigation`, `setRoute` (a
+stream point), `setActiveRideProfile`, `setMapZoom`, `setSticky(params, event)` for other state-like events, `setNavigation`, `setRoute` (a
 polyline the ride app would follow, with its length measured along it), `setRideState`, `setUserProfile` and
 `showPage`; publish one-shot events keyed by params with `publish(params, event)`, and drive built-in data types with
 `setStreamState(id, state)` or `setDataPoint(id, value)`. `reset()` clears everything back to defaults and stays

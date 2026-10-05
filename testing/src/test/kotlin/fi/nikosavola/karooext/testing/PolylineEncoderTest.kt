@@ -2,6 +2,7 @@ package fi.nikosavola.karooext.testing
 
 import kotlin.math.PI
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,7 +72,7 @@ class PolylineEncoderTest {
   }
 
   private fun assertPointsRoundtrip(points: List<Pair<Double, Double>>) {
-    val decoded = decodePolyline(encodePolyline(points))
+    val decoded = referenceDecode(encodePolyline(points))
     assertEquals(points.size, decoded.size)
     points.zip(decoded).forEach { (expected, actual) ->
       assertEquals(expected.first, actual.first, 1e-5)
@@ -81,7 +82,7 @@ class PolylineEncoderTest {
   }
 
   // Independent reference: the inverse of the standard algorithm, not a copy of the encoder.
-  private fun decodePolyline(encoded: String): List<Pair<Double, Double>> {
+  private fun referenceDecode(encoded: String): List<Pair<Double, Double>> {
     val points = mutableListOf<Pair<Double, Double>>()
     var index = 0
     var lat = 0L
@@ -104,5 +105,29 @@ class PolylineEncoderTest {
       shift += 5
     } while (byte >= 0x20)
     return if (value and 1L != 0L) (value shr 1).inv() else value shr 1
+  }
+
+  @Test
+  fun `decode inverts encode`() {
+    val points = listOf(38.5 to -120.2, 40.7 to -120.95, 43.252 to -126.453)
+    assertEquals(points, decodePolyline(encodePolyline(points)))
+  }
+
+  @Test
+  fun `decode reads the reference example`() {
+    assertEquals(
+      listOf(38.5 to -120.2, 40.7 to -120.95, 43.252 to -126.453),
+      decodePolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@"),
+    )
+  }
+
+  @Test
+  fun `decode honours a lower precision`() {
+    assertEquals(listOf(5.5 to 8.5), decodePolyline("mBiD", precision = 1))
+  }
+
+  @Test
+  fun `decode rejects a truncated polyline`() {
+    assertThrows(IllegalArgumentException::class.java) { decodePolyline("_p~iF") }
   }
 }

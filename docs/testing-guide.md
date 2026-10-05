@@ -178,7 +178,7 @@ stream.await(10_000) { it is StreamState.Streaming && it.dataPoint.singleValue =
 
 An extension that `combine`s several streams waits until every one of them has emitted. When the test only cares about some, set `karoo.system.initialStreamState = StreamState.NotAvailable` (or `Searching`) so a data type with no state yet answers with that instead of staying silent. It is off by default and fake policy: the device's first state for an idle type is not documented.
 
-State-like events without a typed setter, such as `ActiveRideProfile`, `SavedDevices`, `Bikes`, `OnGlobalPOIs` or `OnMapZoomLevel`, are stored and replayed with `setSticky(params, event)`. `setActiveRideProfile(profile)` is the typed form for the common indoor check:
+State-like events without a typed setter, such as `SavedDevices`, `Bikes` or `OnGlobalPOIs`, are stored and replayed with `setSticky(params, event)`. `setActiveRideProfile(profile)` and `setMapZoom(level)` are typed forms of the same thing; the first covers the common indoor check:
 
 ```kotlin
 karoo.system.setActiveRideProfile(RideProfile("indoor", "Indoor", emptyList(), true, "indoor_cycling", "road"))
@@ -240,14 +240,25 @@ val scan = host.startScan()
 scan.await(10_000) { it.uid == "sensor-1" }
 
 val device = host.connectDevice("sensor-1")
-val point = device.await(10_000) { it is OnDataPoint } as OnDataPoint
+val point = device.awaitOf<OnDataPoint>(10_000)
 assertEquals(200.0, point.dataPoint.values.getValue(DataType.Field.POWER), 0.0)
 
 val fit = host.startFit()
-val mesg = fit.await(10_000) { it is WriteToRecordMesg } as WriteToRecordMesg
+val mesg = fit.awaitOf<WriteToRecordMesg>(10_000)
 assertEquals(200.0, mesg.values.single().value, 0.0)
 
 host.bonusAction("my-action")
+```
+
+Maps usually draw in bursts of show and hide effects. `map.awaitQuiet(quietMs = 300, timeoutMs = 10_000)` waits until the burst stops, and `visiblePolylines()` and `visibleSymbols()` replay the log into what is on screen now, by id. `decodePolyline(effect.encodedPolyline)` turns a polyline back into points:
+
+```kotlin
+karoo.system.setMapZoom(14.0)
+karoo.system.setLocation(60.17, 24.94)
+val map = karoo.host<MyExtension>().startMap()
+map.awaitQuiet(quietMs = 300, timeoutMs = 10_000)
+val drawn = map.visiblePolylines().values.flatMap { decodePolyline(it.encodedPolyline) }
+assertTrue(drawn.all { (lat, _) -> lat in 60.0..60.4 })
 ```
 
 `Recorder` exposes `items` (read-only), `completed` and `error`. `awaitComplete` fails fast if the extension errored first; `awaitError` fails fast if it completed or timed out. Prefer these over a bare `await` when the contract is completion or failure rather than a specific item.
