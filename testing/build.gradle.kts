@@ -15,9 +15,11 @@ android {
   namespace = "fi.nikosavola.karooext.testing"
   compileSdk = 37
   defaultConfig { minSdk = 26 }
+  // Consumers inline our reified helpers, which fails when our bytecode targets a newer JVM than
+  // theirs. Extensions in the wild still target 1.8 and 11.
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   publishing { singleVariant("release") { withSourcesJar() } }
@@ -61,7 +63,10 @@ dokka {
   }
 }
 
-kotlin { jvmToolchain(21) }
+kotlin {
+  jvmToolchain(21)
+  compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8) }
+}
 
 dependencies {
   // Consumers bring their own karoo-ext, and some use different coordinates, so this module must
