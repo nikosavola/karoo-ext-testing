@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import fi.nikosavola.karooext.testing.FakeKarooHost
 import fi.nikosavola.karooext.testing.FakeKarooSystem
 import io.hammerhead.karooext.aidl.IKarooExtension
+import io.hammerhead.karooext.models.KarooEffect
 import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.rules.ExternalResource
 import org.junit.runner.Description
@@ -31,6 +32,7 @@ import org.robolectric.android.controller.ServiceController
  * @property system the fake the bound service talks to; closed by [close]. Defaults to the one from
  *   [FakeKarooBinding.installEarly] when a test application installed one, else a fresh one.
  */
+@Suppress("TooManyFunctions")
 class FakeKarooRule(
   val system: FakeKarooSystem =
     FakeKarooBinding.takeEarly(ApplicationProvider.getApplicationContext()) ?: FakeKarooSystem()
@@ -85,6 +87,24 @@ class FakeKarooRule(
    */
   fun <T : Any> awaitValue(timeoutMs: Long = 20_000, probe: () -> T?): T =
     fi.nikosavola.karooext.testing.awaitValue(timeoutMs, RobolectricPump::pumpMainLooper, probe)
+
+  /**
+   * Waits for the first dispatched effect of [T] matching [predicate], pumping like [awaitValue].
+   */
+  inline fun <reified T : KarooEffect> awaitEffect(
+    timeoutMs: Long = 20_000,
+    crossinline predicate: (T) -> Boolean = { true },
+  ): T = awaitValue(timeoutMs) { system.effectsOf<T>().firstOrNull { predicate(it) } }
+
+  /**
+   * Waits until the extension streams every one of [dataTypeIds]. Publish after this when the
+   * extension needs every point, since only the latest one is replayed to a late consumer. It only
+   * proves the consumers exist: when the extension combines a stream with others, wait for all of
+   * the inputs, because `combine` drops points that arrive before each input has a value.
+   */
+  fun awaitStreamConsumer(vararg dataTypeIds: String, timeoutMs: Long = 20_000) {
+    awaitValue(timeoutMs) { true.takeIf { dataTypeIds.all(system::hasStreamConsumer) } }
+  }
 
   /** Carries the fake's state on a failed test; not thrown on its own. */
   class FakeKarooState(state: String) : Exception(state) {

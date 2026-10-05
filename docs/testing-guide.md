@@ -132,6 +132,20 @@ karoo.host<MyExtension>()
 val stats = karoo.awaitValue { runBlocking { karoo.app.streamStats().first() }.takeIf { it.failedRequestAt != null } }
 ```
 
+Effects the extension dispatches outside a session, such as alerts and beeps, have their own wait: `karoo.awaitEffect<InRideAlert> { it.title == "Drink" }`.
+
+Only the latest point of a stream is replayed to a consumer that registers late. When the extension needs every point, for example to compute a delta between two readings, wait for it to listen first:
+
+```kotlin
+karoo.host<MyExtension>()
+// The extension combines calories with %FTP, so wait for both inputs.
+karoo.awaitStreamConsumer(DataType.Type.CALORIES, DataType.Type.PERCENT_MAX_FTP)
+karoo.system.setDataPoint(DataType.Type.CALORIES, 100.0)
+karoo.system.setDataPoint(DataType.Type.CALORIES, 140.0)
+```
+
+This only proves the consumers are registered. Flow operators in the extension can still drop points: `combine` emits nothing until every input has a value, and `stateIn`, `conflate` or `collectLatest` keep only the newest. Wait for every input of a `combine`, and where the extension conflates, assert on the end state rather than on each point.
+
 Robolectric reuses its class loader across tests in a class, so static caches survive from one test to the next. `preferencesDataStore` is one: clear it in `@Before` (`context.dataStore.edit { it.clear() }`) or a value written by one test leaks into the next.
 
 When a test fails, `FakeKarooRule` attaches a `FakeKarooState` suppressed exception listing the registered consumers, stream states and HTTP requests at the time of the failure, so a recorder timeout shows what the extension was actually waiting on. `karoo.system.describe()` gives the same text on demand.

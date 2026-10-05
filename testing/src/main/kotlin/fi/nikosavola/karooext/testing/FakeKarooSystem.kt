@@ -504,6 +504,10 @@ class FakeKarooSystem(
   /** Effects of [T] recorded so far, backed by [effects]. */
   inline fun <reified T : KarooEffect> effectsOf(): List<T> = effects.filterIsInstance<T>()
 
+  /** Whether something streams [dataTypeId], so a test can publish only once it is listened to. */
+  fun hasStreamConsumer(dataTypeId: String): Boolean =
+    consumers.values.any { (it.params as? OnStreamState.StartStreaming)?.dataTypeId == dataTypeId }
+
   /**
    * Forgets every consumer and sticky value, drops the recorded effects and requests, and
    * invalidates in-flight HTTP requests. A response that has not begun delivery is dropped; one
