@@ -15,6 +15,8 @@ import org.robolectric.Shadows.shadowOf
  * each test can point the same application at its own `system`.
  */
 object FakeKarooBinding {
+  private var early: Pair<Application, FakeKarooSystem>? = null
+
   /**
    * Registers [system] as the binder for the component the SDK binds to, using Robolectric's shadow
    * of [application]. Nothing is actually installed: the shadow only influences binds made through
@@ -30,4 +32,47 @@ object FakeKarooBinding {
         system,
       )
   }
+
+  /**
+   * For apps that create `KarooSystemService` and connect in `Application.onCreate`, often through
+   * a DI container: that bind happens before any JUnit rule runs, and Robolectric then hands the
+   * SDK a null component. Call this from a test `Application` before `super.onCreate()` and
+   * register it with `@Config(application = ...)`. The next [FakeKarooRule] adopts and closes the
+   * returned system.
+   *
+   * ```kotlin
+   * class TestApp : Application() {
+   *   override fun onCreate() {
+   *     FakeKarooBinding.installEarly(this)
+   *     super.onCreate()
+   *     startKoin { androidContext(this@TestApp); modules(appModule) }
+   *   }
+   * }
+   * ```
+   */
+  fun installEarly(application: Application): FakeKarooSystem {
+    val system = FakeKarooSystem()
+    install(application, system)
+    synchronized(this) {
+      early?.second?.close()
+      early = application to system
+    }
+    return system
+  }
+
+  /**
+   * Hands the system from [installEarly] to the rule of the same [application] once. One left over
+   * from an earlier test's application is closed rather than adopted.
+   */
+  internal fun takeEarly(application: Application): FakeKarooSystem? =
+    synchronized(this) {
+      val waiting = early
+      early = null
+      if (waiting?.first === application) {
+        waiting.second
+      } else {
+        waiting?.second?.close()
+        null
+      }
+    }
 }

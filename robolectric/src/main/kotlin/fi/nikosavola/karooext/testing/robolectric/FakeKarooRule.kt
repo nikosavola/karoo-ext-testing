@@ -9,6 +9,8 @@ import fi.nikosavola.karooext.testing.FakeKarooSystem
 import io.hammerhead.karooext.aidl.IKarooExtension
 import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.rules.ExternalResource
+import org.junit.runner.Description
+import org.junit.runners.model.Statement
 import org.robolectric.Robolectric
 import org.robolectric.android.controller.ServiceController
 
@@ -23,9 +25,16 @@ import org.robolectric.android.controller.ServiceController
  * not itself `Closeable`; `after` calls it, and a test may call it early because it is idempotent.
  * A rule instance is single-use.
  *
- * @property system the fake the bound service talks to; closed by [close]. Defaults to a fresh one.
+ * A failing test gets the fake's [FakeKarooSystem.describe] snapshot attached as a suppressed
+ * exception.
+ *
+ * @property system the fake the bound service talks to; closed by [close]. Defaults to the one from
+ *   [FakeKarooBinding.installEarly] when a test application installed one, else a fresh one.
  */
-class FakeKarooRule(val system: FakeKarooSystem = FakeKarooSystem()) : ExternalResource() {
+class FakeKarooRule(
+  val system: FakeKarooSystem =
+    FakeKarooBinding.takeEarly(ApplicationProvider.getApplicationContext()) ?: FakeKarooSystem()
+) : ExternalResource() {
   /** Application the rule binds through, resolved from the Robolectric test application. */
   val app: Application = ApplicationProvider.getApplicationContext()
 
@@ -45,6 +54,40 @@ class FakeKarooRule(val system: FakeKarooSystem = FakeKarooSystem()) : ExternalR
 
   /** Tears down through [close]. */
   override fun after() = close()
+
+  /**
+   * Attaches [FakeKarooSystem.describe] to a failing test, since timeouts alone rarely say why. The
+   * snapshot is taken before the rule's teardown clears the consumers, but after the test's own
+   * `@After` methods, so state those release is already gone.
+   */
+  @Suppress("TooGenericExceptionCaught")
+  override fun apply(base: Statement, description: Description): Statement {
+    val described =
+      object : Statement() {
+        override fun evaluate() {
+          try {
+            base.evaluate()
+          } catch (failure: Throwable) {
+            failure.addSuppressed(FakeKarooState(system.describe()))
+            throw failure
+          }
+        }
+      }
+    return super.apply(described, description)
+  }
+
+  /**
+   * Polls [probe] until it returns non-null, pumping the main looper before each try. Use it
+   * instead of a bare `awaitValue` for state outside a recorder, such as what the extension
+   * persisted: without pumping, the SDK's connect callback never runs.
+   *
+   * @throws IllegalStateException if [probe] is still null after [timeoutMs].
+   */
+  fun <T : Any> awaitValue(timeoutMs: Long = 20_000, probe: () -> T?): T =
+    fi.nikosavola.karooext.testing.awaitValue(timeoutMs, RobolectricPump::pumpMainLooper, probe)
+
+  /** Carries the fake's state on a failed test; not thrown on its own. */
+  class FakeKarooState(state: String) : Exception(state, null, false, false)
 
   /** Closes every host, destroys its service and closes `system`, attempting all of them. */
   @Suppress("TooGenericExceptionCaught")
