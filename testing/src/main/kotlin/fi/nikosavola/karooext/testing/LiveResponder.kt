@@ -38,7 +38,7 @@ class LiveResponder : HttpResponder {
       opened.requestMethod = request.method
       opened.connectTimeout = TIMEOUT_MS
       opened.readTimeout = TIMEOUT_MS
-      request.headers.forEach(opened::setRequestProperty)
+      for ((name, value) in request.headers) opened.setRequestProperty(name, value)
       request.body?.let { body ->
         opened.doOutput = true
         opened.setFixedLengthStreamingMode(body.size)

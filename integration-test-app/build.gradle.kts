@@ -8,7 +8,7 @@ android {
 
   defaultConfig {
     applicationId = "io.hammerhead.appstore"
-    minSdk = 26
+    minSdk = 23
     targetSdk = 37
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

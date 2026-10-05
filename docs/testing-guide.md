@@ -56,6 +56,14 @@ android {
 
 The same coordinates are `libs.junit`, `libs.robolectric` and `libs.androidx.test.core` in this repo's version catalog (`gradle/libs.versions.toml`).
 
+On JUnit 5, keep your Jupiter tests and add the vintage engine so the JUnit 4 Robolectric tests run on the same platform:
+
+```kotlin
+dependencies {
+  testRuntimeOnly("org.junit.vintage:junit-vintage-engine:<your junit 5 version>")
+}
+```
+
 ## Robolectric: bind your real extension service
 
 Robolectric runs the real binder in-process, so the extension's actual `KarooSystemService`, `DataTypeImpl` and `Emitter` code execute; only the Karoo system end is replaced. Use JUnit 4 with the Robolectric runner and an explicit SDK. `FakeKarooRule` installs the binding before each test and, after the test, stops every session it started, destroys the services and closes the fake system.
@@ -387,7 +395,9 @@ The app's `release` variant is disabled and its manifest is `testOnly`. The brid
 
 ## Toolchain and compatibility
 
-The library is built with Kotlin 2.4.20 on JDK 21 but publishes Java 8 bytecode (class-file major 52) with Kotlin 2.4.0 metadata, so a test source set targeting JVM 1.8 or 11 can still inline the reified helpers such as `karoo.host<T>()`. The test source set needs a Kotlin compiler 2.3 or newer to read the metadata; older compilers fail with a metadata version error. That floor was observed with real extensions on Kotlin 2.3 and 2.4, not a guarantee for every setup. Robolectric itself needs a JDK 17 or newer test runtime.
+The library is built with Kotlin 2.4.20 on JDK 21 but publishes Java 8 bytecode (class-file major 52) with Kotlin 2.1 metadata and a kotlin-stdlib 2.1.0 dependency, so a test source set targeting JVM 1.8 or 11 can still inline the reified helpers such as `karoo.host<T>()`, and a Kotlin 2.0 or newer compiler can read it. The artifacts declare minSdk 23 and minCompileSdk 33. It has been used from extensions on Kotlin 2.0 to 2.4 and AGP 8.5 to 9.4.
+
+It is compiled against karoo-ext 1.1.9, and an older karoo-ext should work for the parts it already has. Connecting and HTTP were run on 1.1.3 and everything else on 1.1.7 to 1.1.9. FIT effects need 1.1.4, `setRoute` needs 1.1.6 and `bonusAction` needs 1.1.7. Calling one of those on an older version fails with `NoSuchMethodError`. Robolectric itself needs a JDK 17 or newer test runtime. Robolectric 4.17 pulls `bcprov` with newer class files than the Android jetifier reads, so a project with `android.enableJetifier=true` needs `android.jetifier.ignorelist=bcprov-jdk18on`.
 
 Add the fakes as a test dependency; nothing here requires changing your app's release toolchain. If your project pins an older toolchain, keep the Robolectric setup in its own test configuration or module.
 

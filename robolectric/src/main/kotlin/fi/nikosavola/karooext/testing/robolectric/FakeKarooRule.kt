@@ -87,7 +87,10 @@ class FakeKarooRule(
     fi.nikosavola.karooext.testing.awaitValue(timeoutMs, RobolectricPump::pumpMainLooper, probe)
 
   /** Carries the fake's state on a failed test; not thrown on its own. */
-  class FakeKarooState(state: String) : Exception(state, null, false, false)
+  class FakeKarooState(state: String) : Exception(state) {
+    /** Skips the stack trace, which would only point at the rule. */
+    override fun fillInStackTrace(): Throwable = this
+  }
 
   /** Closes every host, destroys its service and closes `system`, attempting all of them. */
   @Suppress("TooGenericExceptionCaught")

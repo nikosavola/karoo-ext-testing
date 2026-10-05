@@ -1,10 +1,11 @@
 package fi.nikosavola.karooext.testing.robolectric
 
 import android.os.Looper
-import java.time.Duration
+import java.util.concurrent.TimeUnit
+import kotlin.time.Duration
 import org.robolectric.Shadows.shadowOf
 
-private val STEP: Duration = Duration.ofMillis(20)
+private const val STEP_MS = 20L
 
 /**
  * Advances the main looper a little, so work the extension posts to the main thread still runs
@@ -12,7 +13,7 @@ private val STEP: Duration = Duration.ofMillis(20)
  */
 object RobolectricPump {
   /** Idles the main looper for 20 ms, running work due in that window. */
-  fun pumpMainLooper() = shadowOf(Looper.getMainLooper()).idleFor(STEP)
+  fun pumpMainLooper() = shadowOf(Looper.getMainLooper()).idleFor(STEP_MS, TimeUnit.MILLISECONDS)
 
   /**
    * Returns [pumpMainLooper] as a function, for passing as a recorder's `pump`. Calling this only
@@ -31,9 +32,9 @@ object RobolectricPump {
    *
    * @throws IllegalArgumentException if [duration] is not finite or is negative.
    */
-  fun advanceBy(duration: kotlin.time.Duration) {
+  fun advanceBy(duration: Duration) {
     require(duration.isFinite()) { "duration must be finite, was $duration" }
     require(!duration.isNegative()) { "duration must be nonnegative, was $duration" }
-    shadowOf(Looper.getMainLooper()).idleFor(Duration.ofNanos(duration.inWholeNanoseconds))
+    shadowOf(Looper.getMainLooper()).idleFor(duration.inWholeNanoseconds, TimeUnit.NANOSECONDS)
   }
 }

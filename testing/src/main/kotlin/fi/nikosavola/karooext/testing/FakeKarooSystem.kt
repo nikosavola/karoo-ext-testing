@@ -617,8 +617,8 @@ class FakeKarooSystem(
       handler.onNext(event.bundleWithSerializable(KAROO_SYSTEM_PACKAGE))
     } catch (_: RemoteException) {
       // The consumer's process went away; the real Karoo drops such consumers too.
-      consumers.entries.removeIf { it.value.handler === handler }
-      pendingHttp.entries.removeIf { it.value.handler === handler }
+      consumers.entries.removeAll { it.value.handler === handler }
+      pendingHttp.entries.removeAll { it.value.handler === handler }
     }
   }
 

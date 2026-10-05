@@ -13,7 +13,10 @@ plugins {
 android {
   namespace = "fi.nikosavola.karooext.testing.appstore"
   compileSdk = 37
-  defaultConfig { minSdk = 26 }
+  defaultConfig {
+    minSdk = 23
+    aarMetadata { minCompileSdk = 33 }
+  }
   // Consumers inline our reified helpers, which fails when our bytecode targets a newer JVM than
   // theirs. Extensions in the wild still target 1.8 and 11.
   compileOptions {
@@ -58,7 +61,12 @@ dokka {
 
 kotlin {
   jvmToolchain(21)
-  compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8) }
+  compilerOptions {
+    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+    languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_1)
+    apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_1)
+  }
+  coreLibrariesVersion = "2.1.0"
 }
 
 dependencies {
