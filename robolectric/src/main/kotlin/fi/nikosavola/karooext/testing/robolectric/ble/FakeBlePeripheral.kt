@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanRecord
 import android.bluetooth.le.ScanResult
 import android.os.Build
@@ -151,10 +152,40 @@ private constructor(
   fun connect(timeoutMs: Long = 20_000): BluetoothGatt =
     awaitConnectionRequest(timeoutMs).also { accept() }
 
-  /** Drops the link from the device side; the extension's callback sees `STATE_DISCONNECTED`. */
-  fun disconnect() {
+  /**
+   * Drops the link from the device side; the extension's callback sees `STATE_DISCONNECTED` with
+   * [status], `GATT_SUCCESS` for a clean disconnect or for example 8 for a supervision timeout.
+   */
+  fun disconnect(status: Int = BluetoothGatt.GATT_SUCCESS) {
     val current = checkNotNull(gatt) { notConnected() }
-    shadowOf(current).notifyDisconnection(address)
+    val shadow = shadowOf(current)
+    if (status == BluetoothGatt.GATT_SUCCESS) {
+      shadow.notifyDisconnection(address)
+      return
+    }
+    // notifyDisconnection reports success only, so mute it and deliver the real status ourselves.
+    val callback = shadow.gattCallback
+    shadow.gattCallback = null
+    shadow.notifyDisconnection(address)
+    shadow.gattCallback = callback
+    callback.onConnectionStateChange(current, status, BluetoothProfile.STATE_DISCONNECTED)
+  }
+
+  /**
+   * Fails the oldest pending connection request with [status], the way a connection that cannot be
+   * established does; 133 is the generic error Android reports. The extension's callback sees
+   * `STATE_DISCONNECTED` with that status and the request is consumed.
+   */
+  fun failConnection(status: Int = GATT_ERROR) {
+    val request = checkNotNull(nextRequest()) { "No connection request to $address to fail" }
+    pending -= request
+    shadowOf(request)
+      .gattCallback
+      .onConnectionStateChange(
+        request,
+        status,
+        BluetoothProfile.STATE_DISCONNECTED,
+      )
   }
 
   /**
@@ -433,6 +464,7 @@ private constructor(
 
   private companion object {
     const val DEFAULT_RSSI = -60
+    const val GATT_ERROR = 133
     const val NOTIFYING =
       BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_INDICATE
   }

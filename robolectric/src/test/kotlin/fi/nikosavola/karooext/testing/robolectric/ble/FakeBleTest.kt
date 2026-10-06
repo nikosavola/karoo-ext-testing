@@ -341,6 +341,27 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
   }
 
   @Test
+  fun `a failed connection and a disconnect with a status reach the client`() {
+    client.connect(ADDRESS)
+    band.failConnection()
+    client.connect(ADDRESS)
+    band.connect()
+
+    band.disconnect(status = 8)
+
+    assertFalse(band.isConnected)
+    assertEquals(
+      listOf(
+        BluetoothProfile.STATE_DISCONNECTED,
+        BluetoothProfile.STATE_CONNECTED,
+        BluetoothProfile.STATE_DISCONNECTED,
+      ),
+      client.states,
+    )
+    assertEquals(listOf(133, 0, 8), client.statuses)
+  }
+
+  @Test
   fun `a connection request that never comes times out with the peripheral state`() {
     val error =
       assertThrows(IllegalStateException::class.java) {

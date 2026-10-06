@@ -22,6 +22,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 class BleClient(private val app: Application, newStyle: Boolean) {
   val results = CopyOnWriteArrayList<ScanResult>()
   val states = CopyOnWriteArrayList<Int>()
+  val statuses = CopyOnWriteArrayList<Int>()
   val notifications = CopyOnWriteArrayList<List<Byte>>()
   val reads = CopyOnWriteArrayList<List<Byte>>()
   val discovered = CopyOnWriteArrayList<UUID>()
@@ -94,6 +95,7 @@ class BleClient(private val app: Application, newStyle: Boolean) {
   private inner class OldStyle : BluetoothGattCallback() {
     override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
       states += newState
+      statuses += status
       if (newState == BluetoothProfile.STATE_CONNECTED) gatt.discoverServices()
     }
 
@@ -120,6 +122,7 @@ class BleClient(private val app: Application, newStyle: Boolean) {
   private inner class NewStyle : BluetoothGattCallback() {
     override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
       states += newState
+      statuses += status
       if (newState == BluetoothProfile.STATE_CONNECTED) gatt.discoverServices()
     }
 
