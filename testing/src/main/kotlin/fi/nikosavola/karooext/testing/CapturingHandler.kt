@@ -71,6 +71,13 @@ class CapturingHandler : IHandler.Stub() {
 }
 
 /**
+ * Thrown by [awaitValue] when the probe stayed null for the whole timeout. It is an
+ * [IllegalStateException], so existing handlers still catch it, but code that wants "nothing
+ * happened" can catch this alone without hiding a failure thrown from inside the probe.
+ */
+class AwaitTimeoutException(message: String) : IllegalStateException(message)
+
+/**
  * Polls [probe] until it returns non-null, calling [idle] before each try (Robolectric loopers). A
  * lighter alternative to a typed `Recorder.await` for a raw handler, e.g. a [CapturingHandler]. The
  * deadline is [TimeSource.Monotonic], so a frozen or shifted wall clock cannot cut a wait short.
@@ -82,7 +89,7 @@ class CapturingHandler : IHandler.Stub() {
  * @param idle runs before each probe, e.g. a looper idle; no-op by default.
  * @param probe returns the awaited value or null to keep waiting.
  * @throws IllegalArgumentException if [timeoutMs] is negative.
- * @throws IllegalStateException if [probe] is still null once the timeout elapses. Exceptions from
+ * @throws AwaitTimeoutException if [probe] is still null once the timeout elapses. Exceptions from
  *   [idle] or [probe] propagate unchanged.
  */
 fun <T : Any> awaitValue(
@@ -102,7 +109,7 @@ fun <T : Any> awaitValue(
  * @param idle runs before each probe, e.g. a looper idle; no-op by default.
  * @param probe returns the awaited value or null to keep waiting.
  * @throws IllegalArgumentException if [timeout] is not finite or is negative.
- * @throws IllegalStateException if [probe] is still null once the timeout elapses. Exceptions from
+ * @throws AwaitTimeoutException if [probe] is still null once the timeout elapses. Exceptions from
  *   [idle] or [probe] propagate unchanged.
  */
 fun <T : Any> awaitValue(
@@ -125,7 +132,7 @@ private fun <T : Any> awaitValueNanos(
     }
     val elapsed = start.elapsedNow().inWholeNanoseconds
     if (elapsed >= timeoutNanos) {
-      error("Timed out after $display")
+      throw AwaitTimeoutException("Timed out after $display")
     }
     val left = timeoutNanos - elapsed
     TimeUnit.NANOSECONDS.sleep(minOf(left, POLL_NANOS))
