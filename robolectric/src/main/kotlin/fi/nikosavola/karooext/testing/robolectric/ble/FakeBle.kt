@@ -127,14 +127,20 @@ class FakeBle(private val app: Application) {
   private fun activeScanCallbacks(): List<ScanCallback> =
     activeScans().mapNotNull { it.scanCallback() }
 
-  /** Sends [result] to every running scan whose filters match it, like a radio would. */
-  internal fun deliver(result: ScanResult) {
+  /**
+   * Sends [result] to every running scan whose filters match it, like a radio would; returns how
+   * many took it.
+   */
+  internal fun deliver(result: ScanResult): Int {
+    var delivered = 0
     activeScans().forEach { scan ->
       val filters = scan.scanFilters()
       if (filters.isEmpty() || filters.any { it.matches(result) }) {
         scan.scanCallback()?.onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, result)
+        delivered++
       }
     }
     RobolectricPump.pumpMainLooper()
+    return delivered
   }
 }

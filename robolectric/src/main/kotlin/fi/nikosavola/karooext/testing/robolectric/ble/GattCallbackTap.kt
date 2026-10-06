@@ -5,13 +5,16 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
+import android.os.Handler
+import android.os.Looper
 
 /**
  * Sits between Robolectric's gatt shadow and the extension's callback to log writes and
  * subscriptions, then forwards every call unchanged. Both the pre-33 and the API 33 variants are
- * forwarded as themselves, because the framework defaults chain them in one direction only. This
- * runs on the JVM and Robolectric picks the variant for the emulated SDK, so a call to a newer
- * variant only happens when that SDK has it.
+ * forwarded as themselves, because the framework defaults chain them in one direction only, and
+ * posted to the main looper, so they arrive after the extension's call returned, as from a device.
+ * Writes and subscriptions are recorded before the post. This runs on the JVM and Robolectric picks
+ * the variant for the emulated SDK, so a call to a newer variant only happens when that SDK has it.
  */
 @SuppressLint("NewApi")
 @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION", "TooManyFunctions")
@@ -19,12 +22,20 @@ internal class GattCallbackTap(
   private val delegate: BluetoothGattCallback?,
   private val peripheral: FakeBlePeripheral,
 ) : BluetoothGattCallback() {
+  private val main = Handler(Looper.getMainLooper())
+
+  // The shadow calls back inside the extension's own GATT call; a device answers later, and
+  // clients such as Nordic register what they wait for only after that call returns.
+  private fun post(call: () -> Unit) {
+    main.post(call)
+  }
+
   override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-    delegate?.onConnectionStateChange(gatt, status, newState)
+    post { delegate?.onConnectionStateChange(gatt, status, newState) }
   }
 
   override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-    delegate?.onServicesDiscovered(gatt, status)
+    post { delegate?.onServicesDiscovered(gatt, status) }
   }
 
   override fun onCharacteristicRead(
@@ -32,7 +43,7 @@ internal class GattCallbackTap(
     characteristic: BluetoothGattCharacteristic,
     status: Int,
   ) {
-    delegate?.onCharacteristicRead(gatt, characteristic, status)
+    post { delegate?.onCharacteristicRead(gatt, characteristic, status) }
   }
 
   override fun onCharacteristicRead(
@@ -41,7 +52,7 @@ internal class GattCallbackTap(
     value: ByteArray,
     status: Int,
   ) {
-    delegate?.onCharacteristicRead(gatt, characteristic, value, status)
+    post { delegate?.onCharacteristicRead(gatt, characteristic, value, status) }
   }
 
   override fun onCharacteristicWrite(
@@ -50,14 +61,14 @@ internal class GattCallbackTap(
     status: Int,
   ) {
     peripheral.recordWrite(characteristic)
-    delegate?.onCharacteristicWrite(gatt, characteristic, status)
+    post { delegate?.onCharacteristicWrite(gatt, characteristic, status) }
   }
 
   override fun onCharacteristicChanged(
     gatt: BluetoothGatt,
     characteristic: BluetoothGattCharacteristic,
   ) {
-    delegate?.onCharacteristicChanged(gatt, characteristic)
+    post { delegate?.onCharacteristicChanged(gatt, characteristic) }
   }
 
   override fun onCharacteristicChanged(
@@ -65,7 +76,7 @@ internal class GattCallbackTap(
     characteristic: BluetoothGattCharacteristic,
     value: ByteArray,
   ) {
-    delegate?.onCharacteristicChanged(gatt, characteristic, value)
+    post { delegate?.onCharacteristicChanged(gatt, characteristic, value) }
   }
 
   override fun onDescriptorRead(
@@ -73,7 +84,7 @@ internal class GattCallbackTap(
     descriptor: BluetoothGattDescriptor,
     status: Int,
   ) {
-    delegate?.onDescriptorRead(gatt, descriptor, status)
+    post { delegate?.onDescriptorRead(gatt, descriptor, status) }
   }
 
   override fun onDescriptorRead(
@@ -82,7 +93,7 @@ internal class GattCallbackTap(
     status: Int,
     value: ByteArray,
   ) {
-    delegate?.onDescriptorRead(gatt, descriptor, status, value)
+    post { delegate?.onDescriptorRead(gatt, descriptor, status, value) }
   }
 
   override fun onDescriptorWrite(
@@ -91,30 +102,30 @@ internal class GattCallbackTap(
     status: Int,
   ) {
     peripheral.recordSubscription(descriptor)
-    delegate?.onDescriptorWrite(gatt, descriptor, status)
+    post { delegate?.onDescriptorWrite(gatt, descriptor, status) }
   }
 
   override fun onReliableWriteCompleted(gatt: BluetoothGatt, status: Int) {
-    delegate?.onReliableWriteCompleted(gatt, status)
+    post { delegate?.onReliableWriteCompleted(gatt, status) }
   }
 
   override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
-    delegate?.onReadRemoteRssi(gatt, rssi, status)
+    post { delegate?.onReadRemoteRssi(gatt, rssi, status) }
   }
 
   override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-    delegate?.onMtuChanged(gatt, mtu, status)
+    post { delegate?.onMtuChanged(gatt, mtu, status) }
   }
 
   override fun onPhyUpdate(gatt: BluetoothGatt, txPhy: Int, rxPhy: Int, status: Int) {
-    delegate?.onPhyUpdate(gatt, txPhy, rxPhy, status)
+    post { delegate?.onPhyUpdate(gatt, txPhy, rxPhy, status) }
   }
 
   override fun onPhyRead(gatt: BluetoothGatt, txPhy: Int, rxPhy: Int, status: Int) {
-    delegate?.onPhyRead(gatt, txPhy, rxPhy, status)
+    post { delegate?.onPhyRead(gatt, txPhy, rxPhy, status) }
   }
 
   override fun onServiceChanged(gatt: BluetoothGatt) {
-    delegate?.onServiceChanged(gatt)
+    post { delegate?.onServiceChanged(gatt) }
   }
 }

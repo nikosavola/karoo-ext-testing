@@ -1,5 +1,6 @@
 package fi.nikosavola.karooext.testing.robolectric.ble
 
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
@@ -105,6 +106,16 @@ private constructor(
   val gatt: BluetoothGatt?
     get() = shadowOf(device).bluetoothGatts.lastOrNull { !shadowOf(it).isClosed }
 
+  /**
+   * Whether the device is bonded with the phone, which some extensions require before connecting.
+   */
+  @get:SuppressLint("MissingPermission")
+  var bonded: Boolean
+    get() = device.bondState == BluetoothDevice.BOND_BONDED
+    set(value) =
+      shadowOf(device)
+        .setBondState(if (value) BluetoothDevice.BOND_BONDED else BluetoothDevice.BOND_NONE)
+
   /** Whether the extension asked to connect and the device accepted. */
   val isConnected: Boolean
     get() = gatt?.let { shadowOf(it).isConnected } ?: false
@@ -122,11 +133,22 @@ private constructor(
    * extension's scan callback sees the result with this device's name, services and manufacturer
    * data.
    *
+   * With [untilMatched] it repeats the advertisement until a running scan's filters accept it, as a
+   * device that keeps advertising would, and fails if none does within [timeoutMs].
+   *
    * @throws IllegalStateException if no scan starts within [timeoutMs].
    */
-  fun advertise(rssi: Int = DEFAULT_RSSI, timeoutMs: Long = 20_000) {
+  fun advertise(rssi: Int = DEFAULT_RSSI, timeoutMs: Long = 20_000, untilMatched: Boolean = false) {
     ble.awaitScan(timeoutMs)
-    ble.deliver(scanResult(rssi))
+    val result = scanResult(rssi)
+    if (!untilMatched) {
+      ble.deliver(result)
+      return
+    }
+    // A real device keeps advertising, so a scan that starts later still finds it.
+    await("a running scan that matches the advertisement of $address", timeoutMs) {
+      true.takeIf { ble.deliver(result) > 0 }
+    }
   }
 
   /**
@@ -261,6 +283,26 @@ private constructor(
         .firstOrNull(predicate)
     }
 
+  /**
+   * Fails if a write to [characteristic] has been made, or arrives within [forMs]; the negative
+   * counterpart of [awaitWrite].
+   *
+   * @throws AssertionError if a matching write is found.
+   */
+  fun assertNoWrite(characteristic: UUID, forMs: Long = 500, after: Int = 0) {
+    val seen =
+      try {
+        awaitWrite(characteristic, forMs, after)
+      } catch (_: AwaitTimeoutException) {
+        null
+      }
+    if (seen != null) {
+      throw AssertionError(
+        "Expected no write to $characteristic, got ${GattWrite(characteristic, seen)}"
+      )
+    }
+  }
+
   /** The number of writes so far, to pass as `after` to wait only for later writes. */
   fun mark(): Int = writeLog.size
 
@@ -303,6 +345,12 @@ private constructor(
     pending += gatt
     val shadow = shadowOf(gatt)
     services.forEach { service ->
+      // A new connection starts unsubscribed, whatever the last one left in the descriptors.
+      service.characteristics.forEach { characteristic ->
+        @Suppress("DEPRECATION")
+        characteristic.getDescriptor(CCCD)?.value =
+          BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+      }
       shadow.addDiscoverableService(service)
       service.characteristics
         .filter { it.properties and NOTIFYING != 0 }

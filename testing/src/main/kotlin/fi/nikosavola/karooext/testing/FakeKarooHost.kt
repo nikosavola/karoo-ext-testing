@@ -357,7 +357,7 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
    * @throws IllegalStateException as [await] does.
    */
   inline fun <reified E : T> awaitOf(
-    timeoutMs: Long,
+    timeoutMs: Long = 20_000,
     after: Int = 0,
     crossinline predicate: (E) -> Boolean = { true },
   ): E = await(timeoutMs, after) { it is E && predicate(it) } as E

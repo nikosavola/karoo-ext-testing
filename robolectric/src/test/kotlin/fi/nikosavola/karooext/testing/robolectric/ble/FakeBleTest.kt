@@ -100,6 +100,7 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
     band.awaitSubscribed(MEASUREMENT)
     band.notify(MEASUREMENT, byteArrayOf(0, 72))
 
+    wait { client.notifications.isNotEmpty() }
     assertEquals(listOf(listOf<Byte>(0, 72)), client.notifications)
   }
 
@@ -172,6 +173,7 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
 
     assertFalse(band.isConnected)
     assertThrows(IllegalStateException::class.java) { band.notify(MEASUREMENT, byteArrayOf(1)) }
+    wait { client.states.size >= 2 }
     assertEquals(
       listOf(BluetoothProfile.STATE_CONNECTED, BluetoothProfile.STATE_DISCONNECTED),
       client.states,
@@ -217,6 +219,7 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
 
     client.connect(ADDRESS)
     band.connect()
+    wait { client.states.size >= 3 }
     assertEquals(
       listOf(
         BluetoothProfile.STATE_CONNECTED,
@@ -275,6 +278,7 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
     band.awaitSubscribed(INDICATED)
     band.notify(INDICATED, byteArrayOf(9))
 
+    wait { client.notifications.isNotEmpty() }
     assertEquals(listOf(listOf<Byte>(9)), client.notifications)
   }
 
@@ -331,7 +335,7 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
 
     assertFalse(ble.isScanning)
     assertFalse(band.isConnected)
-    assertEquals(BluetoothProfile.STATE_DISCONNECTED, client.states.last())
+    wait { client.states.lastOrNull() == BluetoothProfile.STATE_DISCONNECTED }
   }
 
   @Test
@@ -350,6 +354,7 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
     band.disconnect(status = 8)
 
     assertFalse(band.isConnected)
+    wait { client.states.size >= 3 }
     assertEquals(
       listOf(
         BluetoothProfile.STATE_DISCONNECTED,
@@ -359,6 +364,63 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
       client.states,
     )
     assertEquals(listOf(133, 0, 8), client.statuses)
+  }
+
+  @Test
+  fun `callbacks arrive after the call that caused them returned`() {
+    client.connect(ADDRESS)
+
+    band.accept()
+
+    assertTrue(client.states.isEmpty())
+    wait { client.states.isNotEmpty() }
+  }
+
+  @Test
+  fun `a reconnect starts unsubscribed so the extension has to subscribe again`() {
+    client.connect(ADDRESS)
+    band.connect()
+    wait { client.discovered.isNotEmpty() }
+    client.subscribe(MEASUREMENT)
+    band.awaitSubscribed(MEASUREMENT)
+    band.disconnect()
+    client.discovered.clear()
+
+    client.connect(ADDRESS)
+    band.connect()
+    wait { client.discovered.isNotEmpty() }
+
+    assertTrue(band.subscribedCharacteristics.isEmpty())
+    client.subscribe(MEASUREMENT)
+    band.awaitSubscribed(MEASUREMENT)
+  }
+
+  @Test
+  fun `advertise can repeat until a scan accepts it`() {
+    client.scan(ScanFilter.Builder().setDeviceName("Nobody").build())
+    Thread {
+      Thread.sleep(300)
+      client.scan(ScanFilter.Builder().setDeviceName("Test band").build())
+    }
+      .start()
+
+    band.advertise(untilMatched = true, timeoutMs = 5_000)
+
+    assertEquals(1, client.results.size)
+  }
+
+  @Test
+  fun `bonding is visible to the extension and no write can be asserted away`() {
+    assertFalse(band.bonded)
+    band.bonded = true
+    assertTrue(client.isBonded(ADDRESS))
+
+    client.connect(ADDRESS)
+    band.connect()
+    wait { client.discovered.isNotEmpty() }
+    band.assertNoWrite(CONTROL, forMs = 100)
+    client.write(CONTROL, byteArrayOf(1))
+    assertThrows(AssertionError::class.java) { band.assertNoWrite(CONTROL, forMs = 100) }
   }
 
   @Test

@@ -2,6 +2,7 @@ package fi.nikosavola.karooext.testing.robolectric.ble
 
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
@@ -84,6 +85,9 @@ class BleClient(private val app: Application, newStyle: Boolean) {
       gatt!!.writeCharacteristic(characteristic)
     }
   }
+
+  fun isBonded(address: String): Boolean =
+    adapter.getRemoteDevice(address).bondState == BluetoothDevice.BOND_BONDED
 
   fun read(uuid: UUID) {
     gatt!!.readCharacteristic(characteristic(uuid))
