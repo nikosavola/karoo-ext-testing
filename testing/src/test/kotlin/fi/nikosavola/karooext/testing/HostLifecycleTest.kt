@@ -8,6 +8,7 @@ import io.hammerhead.karooext.aidl.IKarooExtension
 import io.hammerhead.karooext.extension.DataTypeImpl
 import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.internal.Emitter
+import io.hammerhead.karooext.internal.bundleWithSerializable
 import io.hammerhead.karooext.models.Device
 import io.hammerhead.karooext.models.StreamState
 import java.util.concurrent.CopyOnWriteArrayList
@@ -298,5 +299,22 @@ class HostLifecycleTest {
     assertEquals(1, failure.suppressed.size)
     assertEquals("stop boom", failure.suppressed.single().message)
     assertTrue(ThrowingStartExtension.cancelled.contains("stream"))
+  }
+
+  @Test
+  fun `describe counts each recorder's items by type`() {
+    val host = FakeKarooHost(RecordingExtension())
+    val stream = host.startStream("a")
+    repeat(2) {
+      stream.handler.onNext(
+        (StreamState.Searching as StreamState).bundleWithSerializable(KAROO_SYSTEM_PACKAGE)
+      )
+    }
+    host.startMap()
+    host.close()
+
+    val text = host.describe()
+    assertTrue(text, text.contains("StreamRecorder: Searching x2"))
+    assertTrue(text, text.contains("MapRecorder: no items"))
   }
 }

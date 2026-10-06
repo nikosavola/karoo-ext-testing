@@ -56,6 +56,7 @@ class FakeKarooHost(private val extension: IKarooExtension, private val pump: ()
   Closeable {
   private val lock = ReentrantLock()
   private val sessions = LinkedHashMap<String, () -> Unit>()
+  private val recorders = CopyOnWriteArrayList<Recorder<*>>()
   private var closed = false
 
   /**
@@ -164,6 +165,27 @@ class FakeKarooHost(private val extension: IKarooExtension, private val pump: ()
     }
   }
 
+  /**
+   * One line per recorder this host started, stopped ones included, with item counts by type, for
+   * diagnostics. Not a stable format.
+   */
+  fun describe(): String =
+    recorders.joinToString("\n") { recorder ->
+      val counts =
+        recorder.items
+          .groupingBy { it?.javaClass?.simpleName ?: "null" }
+          .eachCount()
+          .entries
+          .joinToString { (type, count) -> "$type x$count" }
+      val terminal =
+        listOfNotNull(
+            "completed".takeIf { recorder.completed },
+            recorder.error?.let { "error=$it" },
+          )
+          .joinToString(" ")
+      "${recorder.javaClass.simpleName}: ${counts.ifEmpty { "no items" }} $terminal".trimEnd()
+    }
+
   /** Stops every tracked session. Idempotent; attempts all stops and rethrows the first failure. */
   @Suppress("TooGenericExceptionCaught")
   override fun close() {
@@ -210,6 +232,7 @@ class FakeKarooHost(private val extension: IKarooExtension, private val pump: ()
       } else {
         sessions[recorder.id] = stop
       }
+      recorders += recorder
       recorder
     }
 

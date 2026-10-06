@@ -26,8 +26,8 @@ import org.robolectric.android.controller.ServiceController
  * not itself `Closeable`; `after` calls it, and a test may call it early because it is idempotent.
  * A rule instance is single-use.
  *
- * A failing test gets the fake's [FakeKarooSystem.describe] snapshot attached as a suppressed
- * exception.
+ * A failing test gets the fake's [FakeKarooSystem.describe] snapshot, plus what each host's
+ * recorders received, attached as a suppressed exception.
  *
  * @property system the fake the bound service talks to; closed by [close]. Defaults to the one from
  *   [FakeKarooBinding.installEarly] when a test application installed one, else a fresh one.
@@ -70,7 +70,7 @@ class FakeKarooRule(
           try {
             base.evaluate()
           } catch (failure: Throwable) {
-            failure.addSuppressed(FakeKarooState(system.describe()))
+            failure.addSuppressed(FakeKarooState(describe()))
             throw failure
           }
         }
@@ -105,6 +105,14 @@ class FakeKarooRule(
   fun awaitStreamConsumer(vararg dataTypeIds: String, timeoutMs: Long = 20_000) {
     awaitValue(timeoutMs) { true.takeIf { dataTypeIds.all(system::hasStreamConsumer) } }
   }
+
+  private fun describe(): String =
+    hosts
+      .map { it.describe() }
+      .filter { it.isNotEmpty() }
+      .fold(system.describe()) { text, host ->
+        "$text\n  host recorders:\n${host.prependIndent("    ")}"
+      }
 
   /** Carries the fake's state on a failed test; not thrown on its own. */
   class FakeKarooState(state: String) : Exception(state) {

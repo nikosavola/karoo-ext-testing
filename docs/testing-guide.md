@@ -148,7 +148,9 @@ This only proves the consumers are registered. Flow operators in the extension c
 
 Robolectric reuses its class loader across tests in a class, so static caches survive from one test to the next. `preferencesDataStore` is one: clear it in `@Before` (`context.dataStore.edit { it.clear() }`) or a value written by one test leaks into the next.
 
-When a test fails, `FakeKarooRule` attaches a `FakeKarooState` suppressed exception listing the registered consumers, stream states and HTTP requests at the time of the failure, so a recorder timeout shows what the extension was actually waiting on. `karoo.system.describe()` gives the same text on demand.
+When a test fails, `FakeKarooRule` attaches a `FakeKarooState` suppressed exception listing the registered consumers, stream states, HTTP requests, effects and what each host's recorders received at the time of the failure, so a recorder timeout shows what the extension was actually waiting on. `karoo.system.describe()` gives the same text on demand.
+
+Broadcasts an extension sends to other apps, such as one asking another extension to hide its overlay, do not go through karoo-ext, so the fake does not see them. Read them from Robolectric with `shadowOf(karoo.app).broadcastIntents`.
 
 ## Streams and built-in sensor data
 
