@@ -18,9 +18,10 @@ Three artifacts, all published together:
 - `karoo-ext-testing`: `FakeKarooSystem` (an in-process `IKarooSystem`, `Closeable`), `FakeKarooHost` and its
   recorders for streams, views, maps, scans, device connections and FIT, HTTP responders (`HttpResponder`,
   `HttpResponses`, `SequenceResponder`, `RoutingResponder`, `LiveResponder`), `CapturingHandler` and `awaitValue`,
-  RemoteViews inspection helpers, and `encodePolyline`/`decodePolyline`.
+  RemoteViews inspection helpers, `SensorPoints` builders, and `encodePolyline`/`decodePolyline`.
 - `karoo-ext-testing-robolectric`: `FakeKarooBinding.install` to point KarooSystemService's bind at a
-  `FakeKarooSystem`, `RobolectricPump`, and a generic `FakeKarooRule`.
+  `FakeKarooSystem`, `RobolectricPump`, a generic `FakeKarooRule`, a fake BLE peripheral (`FakeBle`,
+  `FakeBlePeripheral`) and `FakeAndroidKeyStore`.
 - `karoo-ext-testing-appstore`: an Android library whose manifest declares the exported
   `io.hammerhead.appstore.service.AppStoreService` returning a process-wide `FakeKaroo.system`, for emulator tests.
 

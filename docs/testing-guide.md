@@ -212,6 +212,47 @@ karoo.system.publish(Lap.Params, Lap(number = 1, durationMs = 120_000, trigger =
 
 A consumer registered after the publish does not receive it, which is the behavior to assert for lap and other transient events.
 
+## Bluetooth LE devices
+
+An extension that talks to a BLE sensor or light itself, rather than through the Karoo's device streams, runs real `BluetoothLeScanner` and `BluetoothGatt` code. Robolectric shadows those classes, and `FakeBle` and `FakeBlePeripheral` (package `fi.nikosavola.karooext.testing.robolectric.ble`) remove the setup around them: advertisements, the GATT service table, descriptor writes and notifications. You need Robolectric 4.16 or newer and API 26 or newer; below that Robolectric does not shadow the GATT calls. Robolectric 4.17's Bluetooth shadow mentions a class that only exists in the compileSdk 36 android.jar, so with `compileSdk` 35 or lower it fails with `NoClassDefFoundError: BluetoothDevice$BluetoothAddress`; use Robolectric 4.16.1 there.
+
+```kotlin
+val ble = FakeBle(karoo.app)
+val light = ble.peripheral("AA:BB:CC:DD:EE:01", name = "B54 light") {
+  service(NUS_SERVICE, advertised = true) {
+    characteristic(NUS_RX, write = true)
+    characteristic(NUS_TX, notify = true)
+  }
+}
+
+ble.grantPermissions()
+val events = karoo.host<MyExtension>().connectDevice("my-light-AA:BB:CC:DD:EE:01")
+
+light.advertise()                      // waits for the extension to start scanning
+light.connect()                        // waits for connectGatt, then accepts it
+light.awaitSubscribed(NUS_TX)          // the extension wrote the notification descriptor
+light.notify(NUS_TX, "\$L12800".toByteArray())
+val keepalive = light.awaitWrite(NUS_RX)
+
+// A request and response device: answer every write on a separate thread, like hardware.
+light.onWrite(NUS_RX) { request -> light.notify(NUS_TX, reply(request)) }
+```
+
+`FakeBle` also switches the adapter on and reports the BLE system features, since Robolectric starts with both off and many apps check them before they scan. A BLE library that initializes through `androidx.startup`, such as Kable, is not initialized by Robolectric either; call its initializer in your test setup (`KableInitializer().create(app)`).
+
+What it checks for you, because a mock would not:
+
+- An advertisement only reaches scans whose filters match it, and only while a scan is running.
+- `notify` throws when the extension never wrote the notification or indication enable value to that characteristic's descriptor. It cannot see whether the extension also called `setCharacteristicNotification`; forgetting that silences a real phone, and Robolectric does not report it.
+- Writes are logged in order (`writes`, `writesTo`, `awaitWrite`), so keepalive and command sequences can be asserted.
+- `disconnect()` and a second `advertise()` and `connect()` exercise reconnect logic. `setEnabled(false)` turns the adapter off and sends `ACTION_STATE_CHANGED`.
+
+`onWrite(characteristic) { request -> ... }` plays a request and response device: the handler runs on its own thread after the write returned, typically calling `notify` with the reply, and an exception in it is rethrown by the next wait. `mark()` and `awaitWrite(after = mark)` wait only for later writes, `setValue` sets what a read returns, and switching the adapter off with `setEnabled(false)` ends scans and drops links. A reconnect needs a fresh `connectGatt` from the extension, which `awaitConnectionRequest` then sees; a client that reconnects through `BluetoothGatt.connect()` on a gatt it kept is connected by Robolectric at once. Shadow callbacks run inside the extension's own call, before it returns, which a device never does.
+
+The old and the API 33 callback variants (`onCharacteristicChanged` with and without the value) are both delivered as the framework would, whichever your callback overrides. Scan and notification callbacks run on the calling thread. Scans started with a `PendingIntent`, the legacy `startLeScan`, GATT servers and bonding are not covered. `grantPermissions()` grants what the extension's own `checkSelfPermission` looks at; skip it to test the missing-permission path. Robolectric does not enforce the permissions inside the Bluetooth calls unless you ask it to, with `shadowOf(device).setShouldThrowSecurityExceptions(true)`.
+
+ANT+ cannot be faked the same way: it goes through Dynastream's own radio service. Keep the ANT layer behind a small interface of your own and test what the extension does with the decoded values; use `FakeKarooSystem` to check that `RequestAnt` and `ReleaseAnt` are paired.
+
 ## HTTP
 
 `FakeKarooSystem.responder` answers proxied requests. `HttpResponses` covers the common shapes: `success(body, headers)`, `status(code)`, `failure(message)`, `notFound()`.
