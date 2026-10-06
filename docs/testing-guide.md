@@ -122,6 +122,17 @@ class MyDeviceTest {
 
 If your `Application` class is `open`, subclass it instead of repeating its setup.
 
+### Hilt
+
+With `@HiltAndroidTest` and `@Config(application = HiltTestApplication::class)`, order the rules so Hilt builds its component first. A `@Singleton` that creates `KarooSystemService` binds when it is injected, after both rules ran, so it needs nothing else:
+
+```kotlin
+@get:Rule(order = 0) val hilt = HiltAndroidRule(this)
+@get:Rule(order = 1) val karoo = FakeKarooRule()
+
+@Before fun inject() = hilt.inject()
+```
+
 ## Waiting on state outside a recorder
 
 Recorders pump the main looper while they wait. When the thing to wait for is something else, such as a value the extension persisted to DataStore, use `karoo.awaitValue { ... }`: it pumps too. A bare `awaitValue` without an `idle` pump never runs the SDK's connect callback, so the extension never starts.
@@ -130,6 +141,13 @@ Recorders pump the main looper while they wait. When the thing to wait for is so
 karoo.system.responder = HttpResponses.status(503)
 karoo.host<MyExtension>()
 val stats = karoo.awaitValue { runBlocking { karoo.app.streamStats().first() }.takeIf { it.failedRequestAt != null } }
+```
+
+Do not call suspending code that talks to the Karoo with `runBlocking` on the test thread: the SDK connects through main-looper callbacks, and nothing pumps the looper while the thread blocks. This includes a DataStore `edit` once the extension is running, which hangs without an error; write it before the extension starts or wait for it with `awaitValue`. Start it elsewhere and wait with the rule:
+
+```kotlin
+val pending = CoroutineScope(Dispatchers.Default).async { repository.currentLocation() }
+val location = karoo.awaitValue { pending.takeIf { it.isCompleted }?.getCompleted() }
 ```
 
 Effects the extension dispatches outside a session, such as alerts and beeps, have their own wait: `karoo.awaitEffect<InRideAlert> { it.title == "Drink" }`.
