@@ -27,8 +27,8 @@ import org.robolectric.Shadows.shadowOf
  * see [setEnabled]. Callbacks are delivered on the calling test thread, like the rest of the
  * library. Pass Robolectric 4.16 or newer; older shadows lack some of the hooks used here.
  *
- * Not covered: scans started with a `PendingIntent`, the legacy `startLeScan`, GATT servers and
- * bonding.
+ * Not covered: scans started with a `PendingIntent`, the legacy `startLeScan`, GATT servers and the
+ * `autoConnect` flag, which the shadow drops.
  */
 class FakeBle(private val app: Application) {
   private val peripherals = ConcurrentHashMap<String, FakeBlePeripheral>()
@@ -45,6 +45,10 @@ class FakeBle(private val app: Application) {
   /** The adapter the extension under test gets from `BluetoothManager`. */
   val adapter: BluetoothAdapter
     get() = (app.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+
+  /** How many scans are running right now. */
+  val scanCount: Int
+    get() = activeScanCallbacks().size
 
   /** Whether any scan is currently running. */
   val isScanning: Boolean
@@ -115,6 +119,16 @@ class FakeBle(private val app: Application) {
    */
   fun awaitScan(timeoutMs: Long = 20_000) {
     awaitValue(timeoutMs, RobolectricPump::pumpMainLooper) { true.takeIf { isScanning } }
+  }
+
+  /**
+   * Waits until [count] scans are running at once, for an extension that runs a saved-device scan
+   * next to a discovery scan, so an advertisement is not sent before the one you mean has started.
+   *
+   * @throws IllegalStateException if fewer than [count] scans run within [timeoutMs].
+   */
+  fun awaitScans(count: Int, timeoutMs: Long = 20_000) {
+    awaitValue(timeoutMs, RobolectricPump::pumpMainLooper) { true.takeIf { scanCount >= count } }
   }
 
   /** Active scan callbacks with the filters each one registered. */

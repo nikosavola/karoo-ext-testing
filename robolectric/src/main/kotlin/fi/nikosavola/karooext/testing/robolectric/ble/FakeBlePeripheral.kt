@@ -85,6 +85,7 @@ private constructor(
   private val writeLog = CopyOnWriteArrayList<GattWrite>()
   private val subscriptions = Collections.newSetFromMap(ConcurrentHashMap<UUID, Boolean>())
   private val pending = CopyOnWriteArrayList<BluetoothGatt>()
+  private val attempts = java.util.concurrent.atomic.AtomicInteger()
   private val writeHandlers = ConcurrentHashMap<UUID, CopyOnWriteArrayList<(ByteArray) -> Unit>>()
   private val handlerErrors = CopyOnWriteArrayList<Throwable>()
   private val replies by lazy {
@@ -115,6 +116,10 @@ private constructor(
     set(value) =
       shadowOf(device)
         .setBondState(if (value) BluetoothDevice.BOND_BONDED else BluetoothDevice.BOND_NONE)
+
+  /** How many times the extension has called `connectGatt` on this device, accepted or not. */
+  val connectionAttempts: Int
+    get() = attempts.get()
 
   /** Whether the extension asked to connect and the device accepted. */
   val isConnected: Boolean
@@ -284,15 +289,20 @@ private constructor(
     }
 
   /**
-   * Fails if a write to [characteristic] has been made, or arrives within [forMs]; the negative
-   * counterpart of [awaitWrite].
+   * Fails if a write to [characteristic] that matches [predicate] has been made, or arrives within
+   * [forMs]; the negative counterpart of [awaitWrite].
    *
    * @throws AssertionError if a matching write is found.
    */
-  fun assertNoWrite(characteristic: UUID, forMs: Long = 500, after: Int = 0) {
+  fun assertNoWrite(
+    characteristic: UUID,
+    forMs: Long = 500,
+    after: Int = 0,
+    predicate: (ByteArray) -> Boolean = { true },
+  ) {
     val seen =
       try {
-        awaitWrite(characteristic, forMs, after)
+        awaitWrite(characteristic, forMs, after, predicate)
       } catch (_: AwaitTimeoutException) {
         null
       }
@@ -343,6 +353,7 @@ private constructor(
   private fun attach(gatt: BluetoothGatt) {
     subscriptions.clear()
     pending += gatt
+    attempts.incrementAndGet()
     val shadow = shadowOf(gatt)
     services.forEach { service ->
       // A new connection starts unsubscribed, whatever the last one left in the descriptors.

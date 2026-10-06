@@ -294,6 +294,23 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
   }
 
   @Test
+  fun `assertNoWrite can look for a particular value and awaitScans counts scans`() {
+    client.scan()
+    BleClient(app, newStyle).scan()
+    ble.awaitScans(2)
+    assertEquals(2, ble.scanCount)
+    client.connect(ADDRESS)
+    band.connect()
+    wait { client.discovered.isNotEmpty() }
+    client.write(CONTROL, byteArrayOf(1))
+
+    band.assertNoWrite(CONTROL, forMs = 100) { it.contentEquals(byteArrayOf(2)) }
+    assertThrows(AssertionError::class.java) {
+      band.assertNoWrite(CONTROL, forMs = 100) { it.contentEquals(byteArrayOf(1)) }
+    }
+  }
+
+  @Test
   fun `awaitWrite can wait for writes after a mark`() {
     client.connect(ADDRESS)
     band.connect()
@@ -364,6 +381,15 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
       client.states,
     )
     assertEquals(listOf(133, 0, 8), client.statuses)
+  }
+
+  @Test
+  fun `connection attempts count every connectGatt`() {
+    client.connect(ADDRESS)
+    band.failConnection()
+    client.connect(ADDRESS)
+
+    assertEquals(2, band.connectionAttempts)
   }
 
   @Test
