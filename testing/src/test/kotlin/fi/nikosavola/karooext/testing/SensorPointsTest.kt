@@ -13,6 +13,7 @@ import io.hammerhead.karooext.models.Symbol
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -44,6 +45,13 @@ class SensorPointsTest {
   }
 
   @Test
+  fun `radar can carry an error code`() {
+    val point = SensorPoints.radar(0, error = 3)
+
+    assertEquals(3.0, point.values.getValue(DataType.Field.RADAR_ERROR), 0.0)
+  }
+
+  @Test
   fun `radar rejects more than eight targets`() {
     assertThrows(IllegalArgumentException::class.java) {
       SensorPoints.radar(1, *DoubleArray(9) { it.toDouble() })
@@ -70,6 +78,18 @@ class SensorPointsTest {
       ),
       SensorPoints.pedalSmoothness(20.0, 21.0).values,
     )
+  }
+
+  @Test
+  fun `pedal power balance can be built for a smoothed type`() {
+    val point =
+      SensorPoints.pedalPowerBalance(
+        51.0,
+        type = DataType.Type.SMOOTHED_3S_AVERAGE_PEDAL_POWER_BALANCE,
+      )
+
+    assertEquals(DataType.Type.SMOOTHED_3S_AVERAGE_PEDAL_POWER_BALANCE, point.dataTypeId)
+    assertEquals(mapOf(DataType.Field.PEDAL_POWER_BALANCE_LEFT to 51.0), point.values)
   }
 
   @Test
@@ -125,18 +145,23 @@ class SensorPointsTest {
   }
 
   @Test
+  fun `savedDevice fills in the parts a test rarely cares about`() {
+    val device = FakeKarooSystem.savedDevice("ant-1", "Pedals", DataType.Type.PEDAL_POWER_BALANCE)
+
+    assertEquals("ant-1", device.id)
+    assertEquals("Pedals", device.name)
+    assertEquals(listOf(DataType.Type.PEDAL_POWER_BALANCE), device.supportedDataTypes)
+    assertTrue(device.enabled)
+    assertEquals("BLE", device.connectionType)
+    assertEquals(
+      "ANT_PLUS",
+      FakeKarooSystem.savedDevice("a", "b", connectionType = "ANT_PLUS").connectionType,
+    )
+  }
+
+  @Test
   fun `typed setters replay saved devices, bikes and pois to late consumers`() {
-    val device =
-      SavedDevices.SavedDevice(
-        id = "ble-1",
-        connectionType = "BLE",
-        name = "Pedals",
-        enabled = true,
-        details = SavedDevices.SavedDevice.DeviceDetail(null, null, null, null),
-        components = null,
-        supportedDataTypes = listOf(DataType.Type.PEDAL_POWER_BALANCE),
-        gearInfo = null,
-      )
+    val device = FakeKarooSystem.savedDevice("ble-1", "Pedals", DataType.Type.PEDAL_POWER_BALANCE)
     system.setSavedDevices(listOf(device))
     system.setBikes(listOf(Bikes.Bike("b1", "Road", 1_000.0)))
     system.setGlobalPois(listOf(Symbol.POI("p1", 60.0, 24.0)))

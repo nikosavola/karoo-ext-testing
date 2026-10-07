@@ -28,23 +28,29 @@ object SensorPoints {
    * @param threatLevel the sensor's threat level, passed through unchanged.
    * @param targetRanges the range of each tracked target in the order the radar reports them, at
    *   most eight.
+   * @param error the radar's error code, set by name, for a reading that reports a fault.
    * @throws IllegalArgumentException if more than eight ranges are given.
    */
-  fun radar(threatLevel: Int, vararg targetRanges: Double): DataPoint {
+  fun radar(threatLevel: Int, vararg targetRanges: Double, error: Int? = null): DataPoint {
     require(targetRanges.size <= RADAR_RANGES.size) { "A radar reports at most 8 targets" }
     val values = buildMap {
       put(DataType.Field.RADAR_THREAT_LEVEL, threatLevel.toDouble())
       targetRanges.forEachIndexed { index, range -> put(RADAR_RANGES[index], range) }
+      error?.let { put(DataType.Field.RADAR_ERROR, it.toDouble()) }
     }
     return DataPoint(DataType.Type.RADAR, values)
   }
 
-  /** Left-right balance for `DataType.Type.PEDAL_POWER_BALANCE`; [power] is included when given. */
-  fun pedalPowerBalance(leftPercent: Double, power: Double? = null): DataPoint =
-    DataPoint(
-      DataType.Type.PEDAL_POWER_BALANCE,
-      withPower(power, DataType.Field.PEDAL_POWER_BALANCE_LEFT to leftPercent),
-    )
+  /**
+   * Left-right balance for [type], `DataType.Type.PEDAL_POWER_BALANCE` unless a smoothed or average
+   * balance type is wanted; [power] is included when given.
+   */
+  fun pedalPowerBalance(
+    leftPercent: Double,
+    power: Double? = null,
+    type: String = DataType.Type.PEDAL_POWER_BALANCE,
+  ): DataPoint =
+    DataPoint(type, withPower(power, DataType.Field.PEDAL_POWER_BALANCE_LEFT to leftPercent))
 
   /** Per-leg torque effectiveness for `DataType.Type.TORQUE_EFFECTIVENESS`. */
   fun torqueEffectiveness(left: Double, right: Double, power: Double? = null): DataPoint =

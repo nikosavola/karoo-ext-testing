@@ -722,6 +722,28 @@ class FakeKarooSystem(
     /** A [UserProfile] with metric units and representative values, the default profile. */
     fun metricProfile(): UserProfile = profile(UserProfile.PreferredUnit.UnitType.METRIC)
 
+    /**
+     * A saved sensor for [setSavedDevices] with no battery, manufacturer or gear details.
+     * [connectionType] is one of `ANT_PLUS`, `BLE`, `OTHER` or `EXTENSION`.
+     */
+    fun savedDevice(
+      id: String,
+      name: String,
+      vararg supportedDataTypes: String,
+      connectionType: String = "BLE",
+      enabled: Boolean = true,
+    ): SavedDevices.SavedDevice =
+      SavedDevices.SavedDevice(
+        id = id,
+        connectionType = connectionType,
+        name = name,
+        enabled = enabled,
+        details = SavedDevices.SavedDevice.DeviceDetail(null, null, null, null),
+        components = null,
+        supportedDataTypes = supportedDataTypes.toList(),
+        gearInfo = null,
+      )
+
     /** A [UserProfile] with imperial units, otherwise like [metricProfile]. */
     fun imperialProfile(): UserProfile = profile(UserProfile.PreferredUnit.UnitType.IMPERIAL)
 
