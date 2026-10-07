@@ -12,6 +12,7 @@ import io.hammerhead.karooext.models.DataPoint
 import io.hammerhead.karooext.models.Device
 import io.hammerhead.karooext.models.DeviceEvent
 import io.hammerhead.karooext.models.FitEffect
+import io.hammerhead.karooext.models.FitEffectWithValues
 import io.hammerhead.karooext.models.HidePolyline
 import io.hammerhead.karooext.models.HideSymbols
 import io.hammerhead.karooext.models.MapEffect
@@ -23,6 +24,7 @@ import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.Symbol
 import io.hammerhead.karooext.models.ViewConfig
 import io.hammerhead.karooext.models.ViewEvent
+import io.hammerhead.karooext.models.WriteToRecordMesg
 import java.io.Closeable
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
@@ -35,6 +37,7 @@ import kotlin.time.TimeSource
 
 private const val VIEW_KEY = "view"
 private const val POLL_MS = 20L
+private const val RECENT_ITEMS = 8
 private val POLL_NANOS: Long = TimeUnit.MILLISECONDS.toNanos(POLL_MS)
 
 /**
@@ -305,6 +308,12 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
     get() = finished
 
   /**
+   * The number of items recorded so far, to pass as `after` when only items from now on should
+   * match, so an earlier look-alike does not satisfy the wait.
+   */
+  fun mark(): Int = recorded.size
+
+  /**
    * Appends [item] and wakes waiters; subclasses call it for each decoded update. Never suppressed,
    * so items keep accumulating after [fail] or [complete], and [await] still returns a buffered
    * match.
@@ -469,14 +478,14 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
     if (!waitUntil(timeoutNanos) { completed || error != null }) {
       throw IllegalStateException(timeoutMessage(display, "completion"))
     }
-    error?.let { throw IllegalStateException("error before completion: $it; got $recorded") }
+    error?.let { throw IllegalStateException("error before completion: $it; got ${recent()}") }
   }
 
   private fun awaitErrorNanos(timeoutNanos: Long, display: String): String {
     if (!waitUntil(timeoutNanos) { error != null || completed }) {
       throw IllegalStateException(timeoutMessage(display, "an error"))
     }
-    return error ?: throw IllegalStateException("completed without an error; got $recorded")
+    return error ?: throw IllegalStateException("completed without an error; got ${recent()}")
   }
 
   private fun waitUntil(timeoutNanos: Long, probe: () -> Boolean): Boolean {
@@ -492,11 +501,21 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
   }
 
   private fun terminalFailure(): String? =
-    error?.let { "terminal error before a matching item arrived: $it; got $recorded" }
-      ?: if (finished) "completed before a matching item arrived; got $recorded" else null
+    error?.let { "terminal error before a matching item arrived: $it; got ${recent()}" }
+      ?: if (finished) "completed before a matching item arrived; got ${recent()}" else null
 
   private fun timeoutMessage(display: String, wanted: String): String =
-    "timed out after $display waiting for $wanted; got $recorded error=$error completed=$completed"
+    "timed out after $display waiting for $wanted; got ${recent()} error=$error completed=$completed"
+
+  // Long recordings, such as FIT records with many fields, would bury the failure.
+  private fun recent(): String {
+    val all = recorded.toList()
+    return if (all.size <= RECENT_ITEMS) {
+      all.toString()
+    } else {
+      "${all.size} items, last $RECENT_ITEMS: ${all.takeLast(RECENT_ITEMS)}"
+    }
+  }
 
   private fun signal() = lock.withLock { arrived.signalAll() }
 }
@@ -695,7 +714,31 @@ class FitRecorder(id: String, pump: () -> Unit) : Recorder<FitEffect>(id, pump) 
 
   /** Effects of [T] recorded so far, backed by [Recorder.items]. */
   inline fun <reified T : FitEffect> effectsOf(): List<T> = items.filterIsInstance<T>()
+
+  /**
+   * Waits for a `WriteToRecordMesg` whose developer fields satisfy [predicate] and returns them by
+   * field name, see [developerValues]. Use [Recorder.mark] as [after] to skip earlier records.
+   *
+   * @throws IllegalStateException as [Recorder.await] does.
+   */
+  fun awaitRecord(
+    timeoutMs: Long = 20_000,
+    after: Int = 0,
+    predicate: (Map<String, Double>) -> Boolean = { true },
+  ): Map<String, Double> =
+    awaitOf<WriteToRecordMesg>(timeoutMs, after) { predicate(it.developerValues()) }
+      .developerValues()
 }
+
+/**
+ * The developer fields of this message by field name, so a test can assert `values["radar_total"]`
+ * without searching the list. Native fields are left out. A name written twice keeps the last.
+ */
+fun FitEffectWithValues.developerValues(): Map<String, Double> =
+  values.mapNotNull { v -> v.developerField?.let { it.fieldName to v.value } }.toMap()
+
+/** The value of the developer field named [name], or null when this message has none. */
+fun FitEffectWithValues.developerValue(name: String): Double? = developerValues()[name]
 
 private fun remoteViews(bundle: Bundle): RemoteViews? =
   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

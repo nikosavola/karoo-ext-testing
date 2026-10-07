@@ -300,7 +300,7 @@ Requests are recorded in `karoo.system.httpRequests`, including headers, so you 
 
 - `startScan()` -> `ScanRecorder` of `Device` the extension advertises.
 - `connectDevice(uid)` or `connectDevice(device)` -> `DeviceRecorder` of `DeviceEvent` (`OnConnectionStatus`, `OnBatteryStatus`, `OnManufacturerInfo`, `OnDataPoint`); `disconnectDevice(recorder)` runs the extension's cancellable. The recorder also has `awaitConnected()`, `awaitStatus(status)`, `awaitDataPoint(dataTypeId) { predicate }`, `dataPoints(dataTypeId)` and `connectionStatus`.
-- `startFit()` -> `FitRecorder` of `FitEffect`; filter with `fit.effectsOf<WriteToRecordMesg>()`.
+- `startFit()` -> `FitRecorder` of `FitEffect`; filter with `fit.effectsOf<WriteToRecordMesg>()`. Developer fields are keyed by name: `fit.awaitRecord { it["radar_total"] == 1.0 }` returns them as a map, and `mesg.developerValue("radar_total")` reads one.
 - `bonusAction(actionId)` -> delivers `onBonusAction` to the extension, like a controller button.
 
 One host can drive several sessions; reuse it rather than starting a new service per action:
@@ -322,6 +322,8 @@ assertEquals(200.0, mesg.values.single().value, 0.0)
 
 host.bonusAction("my-action")
 ```
+
+`recorder.mark()` returns the number of items so far, so `fit.awaitRecord(after = mark)` matches only what arrives from then on. Use it when an earlier record could satisfy the wait by accident.
 
 Maps usually draw in bursts of show and hide effects. `map.awaitQuiet(quietMs = 300, timeoutMs = 10_000)` waits until the burst stops, and `visiblePolylines()` and `visibleSymbols()` replay the log into what is on screen now, by id. `decodePolyline(effect.encodedPolyline)` turns a polyline back into points:
 
