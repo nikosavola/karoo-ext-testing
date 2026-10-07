@@ -409,6 +409,8 @@ There are three time sources in play and they do not move together.
 
 Recorder waits use real elapsed time. `Recorder.await`, `awaitComplete` and `awaitError` measure their timeout with `kotlin.time.TimeSource.Monotonic`, so `await(10_000)` really blocks for up to ten seconds. A bounded-timeout test still works with an empty `pump`, and the budget has to exceed one poll interval (`POLL_MS`, 20 ms) to be meaningful. Coroutine virtual time neither shortens nor drives these waits.
 
+Every wait that pumps the main looper (`awaitValue`, `awaitEffect`, recorder waits) advances the Robolectric clock by 20 ms per poll, so a test that measures the gap between two presses sees that drift. `system.effects.size` is a cheap mark when only effects dispatched from now on should count, for example `system.effects.drop(mark).filterIsInstance<InRideAlert>()`.
+
 `RobolectricPump.advanceBy(duration)` advances the Robolectric main looper clock by a `kotlin.time.Duration`. It moves that clock only. It does not move the SDK's own `System.currentTimeMillis()` unless that code has been virtualized, and `FakeKarooRule` does not set that up for you.
 
 The SDK view emitter throttles frames with real wall-clock time: `ViewEmitter.updateView` reads `System.currentTimeMillis()` and drops a frame within 900 ms of the last. Robolectric does not intercept that call by default, not even with a runner-wide `@Config(sdk = [35])`. Virtualize it per test class or method by naming the SDK's internal package in `instrumentedPackages`:
@@ -438,6 +440,18 @@ class MyViewThrottleTest {
 ```
 
 The `ViewConfig` dimensions above are illustrative; use values matching the layout your test exercises. `updateViewFromExtension()` stands in for whatever makes your extension call `updateView` (for a location-driven field, `karoo.system.setLocation(...)`). Advance the clock past 900 ms before `startView` so the very first frame is not dropped by a window that starts at zero. With the `instrumentedPackages` opt-in, two updates emitted back to back yield one frame, and an update after `advanceBy(1.seconds)` yields the second; without it, `advanceBy` does not affect this throttle because the SDK still reads the real clock. Capture `items.size` first and wait with `after = before` so the first frame cannot satisfy the second wait by accident.
+
+The same switch works for an extension's own time. Cooldowns, sensor-lost timers and "N seconds of data" logic that read `System.currentTimeMillis()` run on the real clock unless their package is listed in `instrumentedPackages` too, and then they start at virtual zero, so advance the clock past any cooldown before feeding data:
+
+```kotlin
+@Config(sdk = [34], instrumentedPackages = ["com.example.myext"])
+// ...
+RobolectricPump.advanceBy(40.seconds)    // past the extension's 30 s alert cooldown
+karoo.system.setDataPoint(...)           // now the first alert is allowed
+RobolectricPump.advanceBy(15.seconds)    // a 15 s sensor-lost timer fires
+```
+
+This moves the main looper and that package's clock. It does not move a `Dispatchers.Default` ticker such as a 1 Hz FIT writer, which still runs in real time, so each record wait costs about a second.
 
 Coroutine time is separate from all of the above. `Dispatchers.IO` is a real dispatcher running on actual background threads; `TestCoroutineScheduler` and `runTest` control a virtual coroutine scheduler. None of them advances the Robolectric main looper, the virtualized SDK clock, or the recorder's monotonic timeout. Keep pure-logic tests that use `runTest` and virtual time separate from binder tests that use blocking recorder waits. Pass `RobolectricPump.invoke()` as a recorder's `pump` (the rule's hosts do) so work the extension posts to the main thread runs while the test thread blocks.
 
