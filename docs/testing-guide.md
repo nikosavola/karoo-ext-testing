@@ -150,7 +150,7 @@ val pending = CoroutineScope(Dispatchers.Default).async { repository.currentLoca
 val location = karoo.awaitValue { pending.takeIf { it.isCompleted }?.getCompleted() }
 ```
 
-Effects the extension dispatches outside a session, such as alerts and beeps, have their own wait: `karoo.awaitEffect<InRideAlert> { it.title == "Drink" }`.
+Effects the extension dispatches outside a session, such as alerts and beeps, have their own wait: `karoo.awaitEffect<InRideAlert> { it.title == "Drink" }`. A negative result can only be shown by waiting, so `karoo.assertNoEffect<InRideAlert>(forMs = 500)` fails if one has been dispatched or arrives in that time. `karoo.host<T>()` refuses a second host for a service that is still running, because Android keeps one instance per class; reuse the first host.
 
 Only the latest point of a stream is replayed to a consumer that registers late. When the extension needs every point, for example to compute a delta between two readings, wait for it to listen first:
 

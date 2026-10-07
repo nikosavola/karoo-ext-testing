@@ -66,6 +66,10 @@ class FakeKarooHost(private val extension: IKarooExtension, private val pump: ()
   private val recorders = CopyOnWriteArrayList<Recorder<*>>()
   private var closed = false
 
+  /** Whether [close] has run, after which this host starts no more sessions. */
+  val isClosed: Boolean
+    get() = lock.withLock { closed }
+
   /**
    * Starts a stream for [typeId], the short `DataTypeImpl.typeId` the type was declared with (for
    * example `"my-type"`), not the full wire id from `DataType.dataTypeId(extensionId, typeId)` that

@@ -12,6 +12,7 @@ import io.hammerhead.karooext.models.PlayBeepPattern
 import io.hammerhead.karooext.models.TurnScreenOn
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +40,48 @@ class RuleAwaitTest {
       karoo.awaitEffect<PlayBeepPattern>(timeoutMs = 1_000) { it.tones[0].frequency == 2_000 }
 
     assertEquals(2_000, beep.tones.single().frequency)
+  }
+
+  @Test
+  fun `assertNoEffect passes while nothing of the type arrives`() {
+    dispatchLater(TurnScreenOn)
+
+    karoo.assertNoEffect<PlayBeepPattern>(forMs = 200)
+  }
+
+  @Test
+  fun `assertNoEffect fails when one arrives during the wait`() {
+    dispatchLater(PlayBeepPattern(listOf(PlayBeepPattern.Tone(1_000, 100))))
+
+    val error =
+      assertThrows(AssertionError::class.java) {
+        karoo.assertNoEffect<PlayBeepPattern>(forMs = 500)
+      }
+
+    assertTrue(error.message!!.contains("PlayBeepPattern"))
+  }
+
+  @Test
+  fun `a second host for the same service is refused until the first is closed`() {
+    val first = karoo.host<LifecycleExtension>()
+
+    val error = assertThrows(IllegalStateException::class.java) { karoo.host<LifecycleExtension>() }
+    assertTrue(error.message!!.contains("already running"))
+
+    first.close()
+    karoo.host<LifecycleExtension>()
+  }
+
+  @Test
+  fun `assertNoEffect does not hide a failure thrown on the main looper`() {
+    Handler(Looper.getMainLooper()).post { error("extension broke") }
+
+    val error =
+      assertThrows(IllegalStateException::class.java) {
+        karoo.assertNoEffect<PlayBeepPattern>(forMs = 300)
+      }
+
+    assertEquals("extension broke", error.message)
   }
 
   @Test

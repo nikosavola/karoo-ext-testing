@@ -9,6 +9,7 @@ import fi.nikosavola.karooext.testing.FakeKarooHost
 import fi.nikosavola.karooext.testing.FakeKarooSystem
 import io.hammerhead.karooext.aidl.IKarooExtension
 import io.hammerhead.karooext.models.KarooEffect
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.rules.ExternalResource
 import org.junit.runner.Description
@@ -48,6 +49,7 @@ class FakeKarooRule(
   val app: Application = ApplicationProvider.getApplicationContext()
 
   private val hosts = CopyOnWriteArrayList<FakeKarooHost>()
+  private val hostsByClass = ConcurrentHashMap<Class<out Service>, FakeKarooHost>()
   private val controllers = CopyOnWriteArrayList<ServiceController<out Service>>()
 
   @Volatile private var closed = false
@@ -113,6 +115,26 @@ class FakeKarooRule(
     awaitValue(timeoutMs) { true.takeIf { dataTypeIds.all(system::hasStreamConsumer) } }
   }
 
+  /**
+   * Fails if a [T] effect has been dispatched, or arrives within [forMs]. Use it for "does not
+   * alert" assertions, since a negative result can only be shown by waiting. The wait is real
+   * elapsed time, pumping the main looper.
+   *
+   * @throws AssertionError if a matching effect is found.
+   */
+  inline fun <reified T : KarooEffect> assertNoEffect(
+    forMs: Long = 500,
+    crossinline predicate: (T) -> Boolean = { true },
+  ) {
+    val seen =
+      try {
+        awaitEffect<T>(forMs, predicate)
+      } catch (_: AwaitTimeoutException) {
+        null
+      }
+    if (seen != null) throw AssertionError("Expected no ${T::class.java.simpleName}, got $seen")
+  }
+
   private fun describe(): String =
     hosts
       .map { it.describe() }
@@ -171,6 +193,7 @@ class FakeKarooRule(
       failure = failure.combine(t)
     }
     hosts.clear()
+    hostsByClass.clear()
     controllers.clear()
     failure?.let { throw it }
   }
@@ -183,6 +206,10 @@ class FakeKarooRule(
   @Suppress("RethrowCaughtException", "TooGenericExceptionCaught")
   fun host(extension: Class<out Service>): FakeKarooHost {
     checkRuleOpen()
+    check(hostsByClass[extension]?.isClosed != false) {
+      "${extension.simpleName} is already running; reuse its host. Android keeps one service " +
+        "instance per class, and a second one would replace singletons the first set up."
+    }
     // Assign and track the controller before create(), so an onCreate failure still leaves it to
     // destroy in the cleanup below.
     var controller: ServiceController<out Service>? = null
@@ -196,6 +223,7 @@ class FakeKarooRule(
       RobolectricPump.pumpMainLooper()
       val host = FakeKarooHost(IKarooExtension.Stub.asInterface(binder), RobolectricPump.invoke())
       hosts += host
+      hostsByClass[extension] = host
       return host
     } catch (t: Throwable) {
       controller?.let { failed ->

@@ -58,7 +58,7 @@ class TeardownTest {
 
   @Test
   fun `repeated destroy failures do not stop the rest of cleanup`() {
-    karoo.host<ThrowingDestroyExtension>()
+    karoo.host<ThrowingDestroyExtension>().close()
     karoo.host<ThrowingDestroyExtension>()
     karoo.host<LifecycleExtension>()
 
