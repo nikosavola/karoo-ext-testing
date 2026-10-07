@@ -9,6 +9,7 @@ import io.hammerhead.karooext.internal.bundleWithSerializable
 import io.hammerhead.karooext.internal.serializableFromBundle
 import io.hammerhead.karooext.models.ActiveRidePage
 import io.hammerhead.karooext.models.ActiveRideProfile
+import io.hammerhead.karooext.models.Bikes
 import io.hammerhead.karooext.models.DataPoint
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.HardwareType
@@ -17,6 +18,7 @@ import io.hammerhead.karooext.models.KarooEffect
 import io.hammerhead.karooext.models.KarooEvent
 import io.hammerhead.karooext.models.KarooEventParams
 import io.hammerhead.karooext.models.KarooInfo
+import io.hammerhead.karooext.models.OnGlobalPOIs
 import io.hammerhead.karooext.models.OnHttpResponse
 import io.hammerhead.karooext.models.OnLocationChanged
 import io.hammerhead.karooext.models.OnMapZoomLevel
@@ -28,7 +30,9 @@ import io.hammerhead.karooext.models.RequestAnt
 import io.hammerhead.karooext.models.RequestBluetooth
 import io.hammerhead.karooext.models.RideProfile
 import io.hammerhead.karooext.models.RideState
+import io.hammerhead.karooext.models.SavedDevices
 import io.hammerhead.karooext.models.StreamState
+import io.hammerhead.karooext.models.Symbol
 import io.hammerhead.karooext.models.UserProfile
 import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
@@ -424,10 +428,20 @@ class FakeKarooSystem(
   /** Publishes the map zoom level and replays it to new consumers. */
   fun setMapZoom(level: Double) = setSticky(OnMapZoomLevel.Params, OnMapZoomLevel(level))
 
+  /** Publishes the user's saved sensors and replays them to new consumers. */
+  fun setSavedDevices(devices: List<SavedDevices.SavedDevice>) =
+    setSticky(SavedDevices.Params, SavedDevices(devices))
+
+  /** Publishes the user's bikes and replays them to new consumers. */
+  fun setBikes(bikes: List<Bikes.Bike>) = setSticky(Bikes.Params, Bikes(bikes))
+
+  /** Publishes the global POIs and replays them to new consumers. */
+  fun setGlobalPois(pois: List<Symbol.POI>) = setSticky(OnGlobalPOIs.Params, OnGlobalPOIs(pois))
+
   /**
    * Stores [event] as the latest value for [params], publishes it and replays it to consumers that
-   * register later. For state-like events without a typed setter here, such as `SavedDevices`,
-   * `Bikes`, `OnGlobalPOIs` or `OnMapZoomLevel`. Use [publish] for one-shot events like laps.
+   * register later. For state-like events without a typed setter of their own. Use [publish] for
+   * one-shot events like laps.
    *
    * @throws IllegalArgumentException if [params] has a typed setter, which owns its sticky state.
    */

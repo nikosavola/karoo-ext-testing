@@ -194,11 +194,13 @@ stream.await(10_000) { it is StreamState.Streaming && it.dataPoint.singleValue =
 
 `setDataPoint(id, value)` is also available as a short form; it wraps `value` under `DataType.Field.SINGLE`, which is fine for a custom data type but not the native power field. A `Streaming` point whose id does not match the data type id is rejected as a test bug.
 
+`SensorPoints` builds the multi-field points the Karoo derives from sensors, so a test does not have to know the field keys: `SensorPoints.radar(threatLevel, vararg ranges)`, `pedalPowerBalance` (with a `type` for the smoothed variants), `torqueEffectiveness`, `pedalSmoothness`, `shiftingGears` and the separate `shiftingFrontGear` and `shiftingRearGear` types. They return a `DataPoint` for `setDataPoint`, and they pass values through without interpreting them, so what a threat level means stays between the sensor and your extension.
+
 `setLocation(lat, lng, orientation, accuracy)` publishes both `OnLocationChanged` and a `DataType.Type.LOCATION` stream point with the `LOC_*` fields, since extensions read either; accuracy defaults to a good 5 m fix because some extensions drop fixes above a threshold.
 
 An extension that `combine`s several streams waits until every one of them has emitted. When the test only cares about some, set `karoo.system.initialStreamState = StreamState.NotAvailable` (or `Searching`) so a data type with no state yet answers with that instead of staying silent. It is off by default and fake policy: the device's first state for an idle type is not documented.
 
-State-like events without a typed setter, such as `SavedDevices`, `Bikes` or `OnGlobalPOIs`, are stored and replayed with `setSticky(params, event)`. `setActiveRideProfile(profile)` and `setMapZoom(level)` are typed forms of the same thing; the first covers the common indoor check:
+State-like events are stored and replayed to late consumers. `setSavedDevices`, `setBikes`, `setGlobalPois`, `setActiveRideProfile` and `setMapZoom` are typed setters for the common ones, and `setSticky(params, event)` covers the rest. The indoor check, for example:
 
 ```kotlin
 karoo.system.setActiveRideProfile(RideProfile("indoor", "Indoor", emptyList(), true, "indoor_cycling", "road"))
