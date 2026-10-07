@@ -297,7 +297,7 @@ Requests are recorded in `karoo.system.httpRequests`, including headers, so you 
 `FakeKarooHost` drives every `IKarooExtension` method, not just streams, views and maps. Each returns a recorder:
 
 - `startScan()` -> `ScanRecorder` of `Device` the extension advertises.
-- `connectDevice(uid)` -> `DeviceRecorder` of `DeviceEvent` (`OnConnectionStatus`, `OnBatteryStatus`, `OnManufacturerInfo`, `OnDataPoint`); `disconnectDevice(recorder)` runs the extension's cancellable.
+- `connectDevice(uid)` or `connectDevice(device)` -> `DeviceRecorder` of `DeviceEvent` (`OnConnectionStatus`, `OnBatteryStatus`, `OnManufacturerInfo`, `OnDataPoint`); `disconnectDevice(recorder)` runs the extension's cancellable. The recorder also has `awaitConnected()`, `awaitStatus(status)`, `awaitDataPoint(dataTypeId) { predicate }`, `dataPoints(dataTypeId)` and `connectionStatus`.
 - `startFit()` -> `FitRecorder` of `FitEffect`; filter with `fit.effectsOf<WriteToRecordMesg>()`.
 - `bonusAction(actionId)` -> delivers `onBonusAction` to the extension, like a controller button.
 
@@ -310,8 +310,9 @@ val scan = host.startScan()
 scan.await(10_000) { it.uid == "sensor-1" }
 
 val device = host.connectDevice("sensor-1")
-val point = device.awaitOf<OnDataPoint>(10_000)
-assertEquals(200.0, point.dataPoint.values.getValue(DataType.Field.POWER), 0.0)
+device.awaitConnected()
+val point = device.awaitDataPoint(DataType.Type.POWER)
+assertEquals(200.0, point.values.getValue(DataType.Field.POWER), 0.0)
 
 val fit = host.startFit()
 val mesg = fit.awaitOf<WriteToRecordMesg>(10_000)

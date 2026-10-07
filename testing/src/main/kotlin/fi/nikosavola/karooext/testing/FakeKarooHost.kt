@@ -7,12 +7,16 @@ import io.hammerhead.karooext.aidl.IHandler
 import io.hammerhead.karooext.aidl.IKarooExtension
 import io.hammerhead.karooext.internal.bundleWithSerializable
 import io.hammerhead.karooext.internal.serializableFromBundle
+import io.hammerhead.karooext.models.ConnectionStatus
+import io.hammerhead.karooext.models.DataPoint
 import io.hammerhead.karooext.models.Device
 import io.hammerhead.karooext.models.DeviceEvent
 import io.hammerhead.karooext.models.FitEffect
 import io.hammerhead.karooext.models.HidePolyline
 import io.hammerhead.karooext.models.HideSymbols
 import io.hammerhead.karooext.models.MapEffect
+import io.hammerhead.karooext.models.OnConnectionStatus
+import io.hammerhead.karooext.models.OnDataPoint
 import io.hammerhead.karooext.models.ShowPolyline
 import io.hammerhead.karooext.models.ShowSymbols
 import io.hammerhead.karooext.models.StreamState
@@ -136,6 +140,9 @@ class FakeKarooHost(private val extension: IKarooExtension, private val pump: ()
       extension.disconnectDevice(recorder.id)
     }
   }
+
+  /** Connects to [device], as the ride app does after the rider picks it from a scan. */
+  fun connectDevice(device: Device): DeviceRecorder = connectDevice(device.uid)
 
   /**
    * Disconnects the device session and untracks it. Calls the binder even if the id is untracked.
@@ -639,6 +646,46 @@ class ScanRecorder(id: String, pump: () -> Unit) : Recorder<Device>(id, pump) {
 class DeviceRecorder(id: String, pump: () -> Unit) : Recorder<DeviceEvent>(id, pump) {
   /** Binder handler passed to the extension. */
   val handler: IHandler = typedHandler(::record, ::fail, ::complete)
+
+  /** The latest connection status the device reported, or null if it has not reported one. */
+  val connectionStatus: ConnectionStatus?
+    get() = items.filterIsInstance<OnConnectionStatus>().lastOrNull()?.status
+
+  /** Data points received for [dataTypeId], oldest first. */
+  fun dataPoints(dataTypeId: String): List<DataPoint> =
+    items
+      .filterIsInstance<OnDataPoint>()
+      .map { it.dataPoint }
+      .filter { it.dataTypeId == dataTypeId }
+
+  /**
+   * Waits for a connection status of [status] among the items from index [after] on.
+   *
+   * @throws IllegalStateException as [Recorder.await] does.
+   */
+  fun awaitStatus(status: ConnectionStatus, timeoutMs: Long = 20_000, after: Int = 0) {
+    awaitOf<OnConnectionStatus>(timeoutMs, after) { it.status == status }
+  }
+
+  /** Waits for the device to report `ConnectionStatus.CONNECTED`. */
+  fun awaitConnected(timeoutMs: Long = 20_000, after: Int = 0) =
+    awaitStatus(ConnectionStatus.CONNECTED, timeoutMs, after)
+
+  /**
+   * Waits for a data point of [dataTypeId] that matches [predicate] and returns it.
+   *
+   * @throws IllegalStateException as [Recorder.await] does.
+   */
+  fun awaitDataPoint(
+    dataTypeId: String,
+    timeoutMs: Long = 20_000,
+    after: Int = 0,
+    predicate: (DataPoint) -> Boolean = { true },
+  ): DataPoint =
+    awaitOf<OnDataPoint>(timeoutMs, after) {
+        it.dataPoint.dataTypeId == dataTypeId && predicate(it.dataPoint)
+      }
+      .dataPoint
 }
 
 /** A FIT handler receives decoded [FitEffect]s the extension wants written to the ride file. */

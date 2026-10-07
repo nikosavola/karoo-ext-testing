@@ -14,6 +14,7 @@ import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.ViewConfig
 import io.hammerhead.karooext.models.WriteToRecordMesg
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -147,6 +148,24 @@ class SampleExtensionTest {
     assertEquals(SAMPLE_DEVICE_UID, point.dataPoint.sourceId)
     host.disconnectDevice(device)
     assertTrue(SampleExtension.cancelled.contains("connect"))
+  }
+
+  @Test
+  fun `device recorder helpers read status and data points`() {
+    val host = karoo.host<SampleExtension>()
+    val scan = host.startScan()
+    val device = host.connectDevice(scan.await(SAMPLE_AWAIT_MS) { true })
+
+    device.awaitConnected(SAMPLE_AWAIT_MS)
+    val point =
+      device.awaitDataPoint(DataType.Type.POWER, SAMPLE_AWAIT_MS) { it.singleValue == 200.0 }
+
+    assertEquals(ConnectionStatus.CONNECTED, device.connectionStatus)
+    assertEquals(listOf(point), device.dataPoints(DataType.Type.POWER))
+    assertTrue(device.dataPoints(DataType.Type.CADENCE).isEmpty())
+    assertThrows(IllegalStateException::class.java) {
+      device.awaitStatus(ConnectionStatus.SEARCHING, timeoutMs = 100)
+    }
   }
 
   @Test
