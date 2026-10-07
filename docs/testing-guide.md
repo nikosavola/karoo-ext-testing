@@ -258,7 +258,9 @@ What it checks for you, because a mock would not:
 
 The old and the API 33 callback variants (`onCharacteristicChanged` with and without the value) are both delivered as the framework would, whichever your callback overrides. Scan results are delivered on the calling thread. Scans started with a `PendingIntent`, the legacy `startLeScan`, GATT servers, MTU and PHY negotiation and the `autoConnect` flag (the shadow drops it) are not covered. `grantPermissions()` grants what the extension's own `checkSelfPermission` looks at; skip it to test the missing-permission path. Robolectric does not enforce the permissions inside the Bluetooth calls unless you ask it to, with `shadowOf(device).setShouldThrowSecurityExceptions(true)`.
 
-ANT+ cannot be faked the same way: it goes through Dynastream's own radio service. Keep the ANT layer behind a small interface of your own and test what the extension does with the decoded values; use `FakeKarooSystem` to check that `RequestAnt` and `ReleaseAnt` are paired.
+An extension asks the Karoo for the radio with `RequestBluetooth(resourceId)` or `RequestAnt(resourceId)` and gives it back with the matching `Release`. A claim that is never released keeps the radio on for the whole ride. `karoo.system.bluetoothClaims` and `antClaims` list what is still held, and `FakeKarooRule(requireReleasedRadios = true)` fails the test at teardown, after the extension's services are destroyed, when anything is left open or a release had no request.
+
+ANT+ cannot be faked like BLE: it goes through Dynastream's own radio service. Keep the ANT layer behind a small interface of your own and test what the extension does with the decoded values, and use the claim check above for the radio lifecycle.
 
 ## HTTP
 

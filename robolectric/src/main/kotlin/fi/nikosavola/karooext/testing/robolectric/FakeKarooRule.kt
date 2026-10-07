@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.Service
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
+import fi.nikosavola.karooext.testing.AwaitTimeoutException
 import fi.nikosavola.karooext.testing.FakeKarooHost
 import fi.nikosavola.karooext.testing.FakeKarooSystem
 import io.hammerhead.karooext.aidl.IKarooExtension
@@ -14,6 +15,8 @@ import org.junit.runner.Description
 import org.junit.runners.model.Statement
 import org.robolectric.Robolectric
 import org.robolectric.android.controller.ServiceController
+
+private const val RADIO_SETTLE_MS = 500L
 
 /**
  * Binds the extension's KarooSystemService to an in-process `system` and tears everything down
@@ -31,11 +34,15 @@ import org.robolectric.android.controller.ServiceController
  *
  * @property system the fake the bound service talks to; closed by [close]. Defaults to the one from
  *   [FakeKarooBinding.installEarly] when a test application installed one, else a fresh one.
+ * @property requireReleasedRadios when true, [close] fails the test if the extension still holds a
+ *   Bluetooth or ANT claim once its services are destroyed, see
+ *   [FakeKarooSystem.assertRadiosReleased]. Off by default.
  */
 @Suppress("TooManyFunctions")
 class FakeKarooRule(
   val system: FakeKarooSystem =
-    FakeKarooBinding.takeEarly(ApplicationProvider.getApplicationContext()) ?: FakeKarooSystem()
+    FakeKarooBinding.takeEarly(ApplicationProvider.getApplicationContext()) ?: FakeKarooSystem(),
+  val requireReleasedRadios: Boolean = false,
 ) : ExternalResource() {
   /** Application the rule binds through, resolved from the Robolectric test application. */
   val app: Application = ApplicationProvider.getApplicationContext()
@@ -144,6 +151,19 @@ class FakeKarooRule(
       RobolectricPump.pumpMainLooper()
     } catch (t: Throwable) {
       failure = failure.combine(t)
+    }
+    if (requireReleasedRadios) {
+      try {
+        // A release sent from a background coroutine during onDestroy may still be in flight.
+        try {
+          awaitValue(RADIO_SETTLE_MS) { true.takeIf { system.radiosBalanced() } }
+        } catch (_: AwaitTimeoutException) {
+          // assertRadiosReleased reports what is left.
+        }
+        system.assertRadiosReleased()
+      } catch (t: Throwable) {
+        failure = failure.combine(t)
+      }
     }
     try {
       system.close()

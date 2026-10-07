@@ -22,6 +22,10 @@ import io.hammerhead.karooext.models.OnLocationChanged
 import io.hammerhead.karooext.models.OnMapZoomLevel
 import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.OnStreamState
+import io.hammerhead.karooext.models.ReleaseAnt
+import io.hammerhead.karooext.models.ReleaseBluetooth
+import io.hammerhead.karooext.models.RequestAnt
+import io.hammerhead.karooext.models.RequestBluetooth
 import io.hammerhead.karooext.models.RideProfile
 import io.hammerhead.karooext.models.RideState
 import io.hammerhead.karooext.models.StreamState
@@ -44,6 +48,9 @@ private const val DEFAULT_HTTP_THREADS = 1
 private const val FULL_GRID = 60
 private const val SERIAL = "fake"
 private const val DEFAULT_ACCURACY_METERS = 5.0
+
+private const val BLUETOOTH = "bluetooth"
+private const val ANT = "ant"
 
 /**
  * The Karoo system end of the karoo-ext binder: what `KarooSystemService` in an extension talks to.
@@ -150,6 +157,17 @@ class FakeKarooSystem(
 
   /** Every effect dispatched through the binder so far, in order. A live thread-safe log. */
   val effects = CopyOnWriteArrayList<KarooEffect>()
+
+  /**
+   * Resource ids passed to `RequestBluetooth` that no `ReleaseBluetooth` has answered yet, in
+   * request order. An extension that connects a sensor should end a test with this empty.
+   */
+  val bluetoothClaims: Set<String>
+    get() = radioLedger().held(BLUETOOTH)
+
+  /** Like [bluetoothClaims], for `RequestAnt` and `ReleaseAnt`. */
+  val antClaims: Set<String>
+    get() = radioLedger().held(ANT)
 
   /**
    * Every HTTP request registered so far, in order. A live thread-safe log of arrivals, not a
@@ -497,6 +515,7 @@ class FakeKarooSystem(
       "  http requests: ${httpRequests.map { "${it.method} ${it.url}" }.ifEmpty { "none" }}"
     )
     appendLine("  pending http: $pendingHttpCount")
+    appendLine("  radio claims: bluetooth=$bluetoothClaims, ant=$antClaims")
     append("  effects: ${effects.ifEmpty { "none" }}")
   }
 
@@ -507,6 +526,60 @@ class FakeKarooSystem(
 
   /** Effects of [T] recorded so far, backed by [effects]. */
   inline fun <reified T : KarooEffect> effectsOf(): List<T> = effects.filterIsInstance<T>()
+
+  /** Whether every Bluetooth and ANT request has been released and no release came unasked. */
+  fun radiosBalanced(): Boolean = radioLedger().let { it.held.isEmpty() && it.unmatched.isEmpty() }
+
+  /**
+   * Fails when a Bluetooth or ANT resource was requested and never released, or released without
+   * being requested. A leaked claim keeps the radio on for the whole ride on a real device.
+   *
+   * @throws AssertionError listing the unbalanced resource ids.
+   */
+  fun assertRadiosReleased() {
+    val ledger = radioLedger()
+    val problems = buildList {
+      if (ledger.held.isNotEmpty()) add("requested and never released: ${ledger.held}")
+      if (ledger.unmatched.isNotEmpty()) add("released but never requested: ${ledger.unmatched}")
+    }
+    if (problems.isNotEmpty()) {
+      throw AssertionError("Radio claims unbalanced; ${problems.joinToString("; ")}")
+    }
+  }
+
+  private class RadioLedger {
+    val held = linkedSetOf<String>()
+    val unmatched = mutableListOf<String>()
+
+    fun held(kind: String): Set<String> =
+      held
+        .filter { it.startsWith("$kind:") }
+        .map { it.substringAfter(':') }
+        .toCollection(linkedSetOf())
+
+    private fun key(kind: String, id: String) = "$kind:$id"
+
+    fun request(kind: String, id: String) {
+      held += key(kind, id)
+    }
+
+    fun release(kind: String, id: String) {
+      if (!held.remove(key(kind, id))) unmatched += key(kind, id)
+    }
+  }
+
+  private fun radioLedger(): RadioLedger =
+    RadioLedger().also { ledger ->
+      effects.toList().forEach { effect ->
+        when (effect) {
+          is RequestBluetooth -> ledger.request(BLUETOOTH, effect.resourceId)
+          is ReleaseBluetooth -> ledger.release(BLUETOOTH, effect.resourceId)
+          is RequestAnt -> ledger.request(ANT, effect.resourceId)
+          is ReleaseAnt -> ledger.release(ANT, effect.resourceId)
+          else -> Unit
+        }
+      }
+    }
 
   /** Whether something streams [dataTypeId], so a test can publish only once it is listened to. */
   fun hasStreamConsumer(dataTypeId: String): Boolean =
