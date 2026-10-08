@@ -130,4 +130,13 @@ class PolylineEncoderTest {
   fun `decode rejects a truncated polyline`() {
     assertThrows(IllegalArgumentException::class.java) { decodePolyline("_p~iF") }
   }
+
+  @Test
+  fun `a coarser precision round trips elevation pairs`() {
+    val profile = listOf(0.0 to 120.5, 100.0 to 123.4, 250.0 to 130.0)
+
+    val encoded = encodePolyline(profile, precision = 1)
+
+    assertEquals(profile, decodePolyline(encoded, precision = 1))
+  }
 }

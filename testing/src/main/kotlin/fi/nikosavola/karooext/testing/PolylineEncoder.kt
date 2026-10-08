@@ -7,7 +7,6 @@ import kotlin.math.roundToLong
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-private const val PRECISION = 1e5
 private const val CHUNK_BITS = 5
 private const val CHUNK_MASK = 0x1f
 private const val CONTINUATION = 0x20
@@ -15,16 +14,19 @@ private const val ASCII_OFFSET = 63
 private const val EARTH_RADIUS_M = 6_371_000.0
 
 /**
- * Google encoded polyline, precision 5, as the Karoo sends routes. Points are lat to lng in
- * degrees, paired as `first` = latitude and `second` = longitude; altitude is not encoded. Values
- * are not validated or range-checked, so an out-of-range point encodes as given.
+ * Google encoded polyline, precision 5 by default, as the Karoo sends routes. Points are lat to lng
+ * in degrees, paired as `first` = latitude and `second` = longitude; altitude is not encoded.
+ * [precision] is the number of decimals, 1 for the elevation profile in `OnNavigationState`, where
+ * the pairs are distance to elevation. Values are not validated or range-checked, so an
+ * out-of-range point encodes as given.
  */
-fun encodePolyline(points: List<Pair<Double, Double>>): String = buildString {
+fun encodePolyline(points: List<Pair<Double, Double>>, precision: Int = 5): String = buildString {
+  val scale = 10.0.pow(precision)
   var lastLat = 0L
   var lastLng = 0L
   for ((lat, lng) in points) {
-    val latE5 = (lat * PRECISION).roundToLong()
-    val lngE5 = (lng * PRECISION).roundToLong()
+    val latE5 = (lat * scale).roundToLong()
+    val lngE5 = (lng * scale).roundToLong()
     appendValue(latE5 - lastLat)
     appendValue(lngE5 - lastLng)
     lastLat = latE5

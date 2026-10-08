@@ -10,7 +10,12 @@ import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.internal.Emitter
 import io.hammerhead.karooext.internal.bundleWithSerializable
 import io.hammerhead.karooext.models.Device
+import io.hammerhead.karooext.models.HidePolyline
+import io.hammerhead.karooext.models.MapEffect
+import io.hammerhead.karooext.models.ShowPolyline
+import io.hammerhead.karooext.models.ShowSymbols
 import io.hammerhead.karooext.models.StreamState
+import io.hammerhead.karooext.models.Symbol
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -34,6 +39,7 @@ private const val STOP_STREAM_PREFIX = "stopStream:"
 private class RecordingExtension : IKarooExtension.Stub() {
   val calls = CopyOnWriteArrayList<String>()
   val failingPrefixes = CopyOnWriteArrayList<String>()
+  val mapHandlers = CopyOnWriteArrayList<IHandler>()
 
   /** When true, failed calls throw one shared instance, to exercise self-suppression guards. */
   var sharedFailure = false
@@ -71,7 +77,10 @@ private class RecordingExtension : IKarooExtension.Stub() {
 
   override fun stopView(id: String) = record("stopView:$id")
 
-  override fun startMap(id: String, handler: IHandler) = record("startMap:$id")
+  override fun startMap(id: String, handler: IHandler) {
+    mapHandlers += handler
+    record("startMap:$id")
+  }
 
   override fun stopMap(id: String) = record("stopMap:$id")
 
@@ -152,6 +161,27 @@ class HostLifecycleTest {
   fun resetFixtures() {
     ThrowingStartExtension.reset()
     ReentrantCloseExtension.reset()
+  }
+
+  @Test
+  fun `layers drawn in one map session stay visible in the next unless hidden`() {
+    val extension = RecordingExtension()
+    val host = FakeKarooHost(extension)
+    host.startMap()
+    host.startMap()
+
+    fun send(session: Int, effect: MapEffect) =
+      extension.mapHandlers[session].onNext(effect.bundleWithSerializable(KAROO_SYSTEM_PACKAGE))
+    val line = { id: String -> ShowPolyline(id, encodePolyline(listOf(1.0 to 2.0)), 0, 4) }
+
+    send(0, line("route"))
+    send(0, line("rejoin"))
+    send(1, HidePolyline("rejoin"))
+    send(1, ShowSymbols(listOf(Symbol.POI("p", 1.0, 2.0))))
+
+    assertEquals(setOf("route"), host.visiblePolylines().keys)
+    assertEquals(setOf("p"), host.visibleSymbols().keys)
+    host.close()
   }
 
   @Test

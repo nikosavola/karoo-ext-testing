@@ -133,6 +133,19 @@ class FakeKarooHost(private val extension: IKarooExtension, private val pump: ()
     }
   }
 
+  /**
+   * Polylines shown across every map session this host started, replayed in session order. The ride
+   * app keeps map layers when an extension starts a new map session, so a layer one session drew
+   * and a later one did not hide is still on screen.
+   */
+  fun visiblePolylines(): Map<String, ShowPolyline> = mapEffects().visiblePolylines()
+
+  /** Symbols shown across every map session this host started, see [visiblePolylines]. */
+  fun visibleSymbols(): Map<String, Symbol> = mapEffects().visibleSymbols()
+
+  private fun mapEffects(): List<MapEffect> =
+    recorders.filterIsInstance<MapRecorder>().flatMap { it.effects }
+
   /** Stops the scan session and untracks it. Calls the binder even if the id is untracked. */
   fun stopScan(recorder: ScanRecorder) =
     stopSession(recorder.id) { extension.stopScan(recorder.id) }
@@ -637,26 +650,10 @@ class MapRecorder(id: String, pump: () -> Unit) : Recorder<MapEffect>(id, pump) 
   inline fun <reified T : MapEffect> effectsOf(): List<T> = items.filterIsInstance<T>()
 
   /** Polylines still shown after replaying every show and hide in order, by id. */
-  fun visiblePolylines(): Map<String, ShowPolyline> = buildMap {
-    for (effect in items) {
-      when (effect) {
-        is ShowPolyline -> put(effect.id, effect)
-        is HidePolyline -> remove(effect.id)
-        else -> Unit
-      }
-    }
-  }
+  fun visiblePolylines(): Map<String, ShowPolyline> = items.visiblePolylines()
 
   /** Symbols still shown after replaying every show and hide in order, by id. */
-  fun visibleSymbols(): Map<String, Symbol> = buildMap {
-    for (effect in items) {
-      when (effect) {
-        is ShowSymbols -> effect.symbols.forEach { put(it.id, it) }
-        is HideSymbols -> effect.symbolIds.forEach { remove(it) }
-        else -> Unit
-      }
-    }
-  }
+  fun visibleSymbols(): Map<String, Symbol> = items.visibleSymbols()
 }
 
 /** A scan handler receives decoded [Device]s advertised by the extension. */
@@ -743,6 +740,26 @@ fun FitEffectWithValues.developerValues(): Map<String, Double> =
 
 /** The value of the developer field named [name], or null when this message has none. */
 fun FitEffectWithValues.developerValue(name: String): Double? = developerValues()[name]
+
+private fun List<MapEffect>.visiblePolylines(): Map<String, ShowPolyline> = buildMap {
+  for (effect in this@visiblePolylines) {
+    when (effect) {
+      is ShowPolyline -> put(effect.id, effect)
+      is HidePolyline -> remove(effect.id)
+      else -> Unit
+    }
+  }
+}
+
+private fun List<MapEffect>.visibleSymbols(): Map<String, Symbol> = buildMap {
+  for (effect in this@visibleSymbols) {
+    when (effect) {
+      is ShowSymbols -> effect.symbols.forEach { put(it.id, it) }
+      is HideSymbols -> effect.symbolIds.forEach { remove(it) }
+      else -> Unit
+    }
+  }
+}
 
 private fun remoteViews(bundle: Bundle): RemoteViews? =
   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

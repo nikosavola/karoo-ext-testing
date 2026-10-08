@@ -17,6 +17,7 @@ import io.hammerhead.karooext.models.OnHttpResponse
 import io.hammerhead.karooext.models.OnLocationChanged
 import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.RideState
+import io.hammerhead.karooext.models.Symbol
 import io.hammerhead.karooext.models.TurnScreenOn
 import io.hammerhead.karooext.models.UserProfile
 import java.util.concurrent.CopyOnWriteArrayList
@@ -111,6 +112,41 @@ class FakeKarooSystemTest {
     // 0.01 deg of latitude plus 0.01 deg of longitude at 60 deg, within rounding.
     assertEquals(1_667.9, route.routeDistance, 2.0)
     assertTrue(route.routePolyline.isNotEmpty())
+  }
+
+  @Test
+  fun `setRoute leaves the optional parts absent unless given`() {
+    val system = track(FakeKarooSystem())
+    val handler = CapturingHandler()
+    system.add("nav", OnNavigationState.Params, handler)
+    val points = listOf(60.0 to 24.0, 60.01 to 24.0)
+
+    system.setRoute(points)
+    val bare =
+      handler.events<OnNavigationState>().last().state
+        as OnNavigationState.NavigationState.NavigatingRoute
+    system.setRoute(
+      points,
+      elevationProfile = listOf(0.0 to 10.0, 1_000.0 to 25.0),
+      rejoin = listOf(60.0 to 24.0, 60.0 to 24.001),
+      rejoinDistanceMeters = 55.0,
+      reversed = true,
+      pois = listOf(Symbol.POI("p", 60.005, 24.0)),
+    )
+    val full =
+      handler.events<OnNavigationState>().last().state
+        as OnNavigationState.NavigationState.NavigatingRoute
+
+    assertNull(bare.routeElevationPolyline)
+    assertNull(bare.rejoinPolyline)
+    assertEquals(
+      listOf(0.0 to 10.0, 1_000.0 to 25.0),
+      decodePolyline(full.routeElevationPolyline!!, precision = 1),
+    )
+    assertEquals(2, decodePolyline(full.rejoinPolyline!!).size)
+    assertEquals(55.0, full.rejoinDistance!!, 0.0)
+    assertTrue(full.reversed)
+    assertEquals(listOf("p"), full.pois.map { it.id })
   }
 
   @Test

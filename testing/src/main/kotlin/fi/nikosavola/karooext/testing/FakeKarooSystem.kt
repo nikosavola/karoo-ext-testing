@@ -387,7 +387,10 @@ class FakeKarooSystem(
 
   /**
    * Navigates [points] (lat to lng) as the active route, the way the ride app follows a planned
-   * one; distance along the polyline unless [routeDistanceMeters] says otherwise.
+   * one; distance along the polyline unless [routeDistanceMeters] says otherwise. The optional
+   * parts are absent by default, as for a route without elevation data: [elevationProfile] pairs
+   * distance along the route with elevation, [rejoin] is the line back to the route after leaving
+   * it, and [pois] and [climbs] are listed along the route.
    *
    * @sample fi.nikosavola.karooext.testing.samples.routeInput
    */
@@ -395,19 +398,26 @@ class FakeKarooSystem(
     points: List<Pair<Double, Double>>,
     name: String = "Test route",
     routeDistanceMeters: Double = polylineLengthMeters(points),
+    elevationProfile: List<Pair<Double, Double>>? = null,
+    rejoin: List<Pair<Double, Double>>? = null,
+    rejoinDistanceMeters: Double? = null,
+    reversed: Boolean = false,
+    breadcrumb: Boolean = false,
+    pois: List<Symbol.POI> = emptyList(),
+    climbs: List<OnNavigationState.NavigationState.Climb> = emptyList(),
   ) {
     setNavigation(
       OnNavigationState.NavigationState.NavigatingRoute(
         routePolyline = encodePolyline(points),
         routeDistance = routeDistanceMeters,
-        routeElevationPolyline = "",
-        rejoinPolyline = "",
-        rejoinDistance = null,
+        routeElevationPolyline = elevationProfile?.let { encodePolyline(it, precision = 1) },
+        rejoinPolyline = rejoin?.let { encodePolyline(it) },
+        rejoinDistance = rejoinDistanceMeters,
         name = name,
-        reversed = false,
-        breadcrumb = false,
-        pois = emptyList(),
-        climbs = emptyList(),
+        reversed = reversed,
+        breadcrumb = breadcrumb,
+        pois = pois,
+        climbs = climbs,
       )
     )
   }

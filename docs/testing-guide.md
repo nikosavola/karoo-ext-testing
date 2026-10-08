@@ -333,6 +333,8 @@ host.bonusAction("my-action")
 
 `recorder.mark()` returns the number of items so far, so `fit.awaitRecord(after = mark)` matches only what arrives from then on. Use it when an earlier record could satisfy the wait by accident.
 
+`host.visiblePolylines()` and `visibleSymbols()` do the same across every map session the host started, since the ride app keeps layers when an extension starts a new session. `setRoute` takes an `elevationProfile`, a `rejoin` line, `pois`, `climbs`, `reversed` and `breadcrumb`; the optional parts are null unless given. `encodePolyline(points, precision = 1)` builds the elevation pairs.
+
 Maps usually draw in bursts of show and hide effects. `map.awaitQuiet(quietMs = 300, timeoutMs = 10_000)` waits until the burst stops, and `visiblePolylines()` and `visibleSymbols()` replay the log into what is on screen now, by id. `decodePolyline(effect.encodedPolyline)` turns a polyline back into points:
 
 ```kotlin
