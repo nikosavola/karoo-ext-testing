@@ -136,6 +136,15 @@ class FakeKarooSystem(
   @Volatile var initialStreamState: StreamState? = null
 
   /**
+   * When true, the value replayed to a new consumer is delivered from another thread after
+   * [addEventConsumer] has returned, as the oneway binder call does on a device. The default
+   * replays on the registering thread before the call returns, which is simpler to assert on but
+   * hides code that uses the consumer id inside its own callback: the SDK has not handed the id
+   * back yet. Turn it on to catch that.
+   */
+  @Volatile var replayAsynchronously: Boolean = false
+
+  /**
    * Largest response body the bridge accepts; a larger body becomes a status 0 error. Captured per
    * request when it is registered. Setting a negative value throws `IllegalArgumentException`.
    */
@@ -156,6 +165,7 @@ class FakeKarooSystem(
   }
 
   private val http = Executors.newFixedThreadPool(httpThreads)
+  private val replays = Executors.newSingleThreadExecutor()
 
   @Volatile private var closed = false
 
@@ -262,9 +272,21 @@ class FakeKarooSystem(
         http.execute { serve(id, pending) }
         return
       }
-      consumers[id] = Consumer(parsed, handler)
-      // The fake replays the current value to a new consumer straight away.
-      current(parsed)?.let { send(handler, it) }
+      val registered = Consumer(parsed, handler)
+      consumers[id] = registered
+      // The fake replays the current value to a new consumer, by default before this call returns.
+      val replay = current(parsed)
+      if (replayAsynchronously) {
+        // The value is taken now, as the oneway call carries it, so a later publish cannot erase
+        // it.
+        replays.execute {
+          lifecycleLock.withLock {
+            if (!closed && consumers[id] === registered) replay?.let { send(handler, it) }
+          }
+        }
+      } else {
+        replay?.let { send(handler, it) }
+      }
     }
   }
 
@@ -595,6 +617,17 @@ class FakeKarooSystem(
       }
     }
 
+  /**
+   * The recorded requests whose URL contains [text], for telling the call under test apart from
+   * background traffic such as an update check.
+   */
+  fun httpRequestsTo(text: String): List<OnHttpResponse.MakeHttpRequest> = httpRequests.filter {
+    it.url.contains(text)
+  }
+
+  /** Whether something listens for [params], so a test can publish only once it is observed. */
+  fun hasConsumer(params: KarooEventParams): Boolean = consumers.values.any { it.params == params }
+
   /** Whether something streams [dataTypeId], so a test can publish only once it is listened to. */
   fun hasStreamConsumer(dataTypeId: String): Boolean =
     consumers.values.any { (it.params as? OnStreamState.StartStreaming)?.dataTypeId == dataTypeId }
@@ -616,6 +649,7 @@ class FakeKarooSystem(
       streamStates.clear()
       stickyEvents.clear()
       initialStreamState = null
+      replayAsynchronously = false
       location = null
       navigation = OnNavigationState(OnNavigationState.NavigationState.Idle)
       rideState = RideState.Idle
@@ -640,6 +674,7 @@ class FakeKarooSystem(
       consumers.clear()
       pendingHttp.clear()
       http.shutdownNow()
+      replays.shutdownNow()
     }
   }
 

@@ -176,7 +176,7 @@ Broadcasts an extension sends to other apps, such as one asking another extensio
 
 ## Streams and built-in sensor data
 
-The fake replays the latest `StreamState` to a consumer that registers late. Treat that as fake policy, not a device guarantee: the SDK documents sticky replay only for `RideState` and `UserProfile`, not for stream state. `setDataPoint` is the short form for a `Streaming` point.
+The fake replays the latest `StreamState` to a consumer that registers late, before `addEventConsumer` returns. On a device the call is oneway, so the replay arrives afterwards; set `system.replayAsynchronously = true` to model that and catch code that uses the consumer id inside its own callback. Treat that as fake policy, not a device guarantee: the SDK documents sticky replay only for `RideState` and `UserProfile`, not for stream state. `setDataPoint` is the short form for a `Streaming` point.
 
 The default user profile (`FakeKarooSystem.metricProfile()` or `imperialProfile()`, passed to `setUserProfile`) has a 250 W FTP with seven power zones and a 190 bpm maximum with five heart rate zones, so zone-colored fields do not crash on an empty list.
 

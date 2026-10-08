@@ -57,6 +57,29 @@ class StickyStateTest {
   }
 
   @Test
+  fun `asynchronous replay reaches the consumer after registration returns`() {
+    system.replayAsynchronously = true
+    system.setRideState(RideState.Recording)
+    val caller = Thread.currentThread()
+    val delivered = java.util.concurrent.CompletableFuture<Thread>()
+    val handler =
+      object : IHandler.Stub() {
+        override fun onNext(bundle: android.os.Bundle) {
+          delivered.complete(Thread.currentThread())
+        }
+
+        override fun onError(message: String?) = Unit
+
+        override fun onComplete() = Unit
+      }
+
+    add("rs", RideState.Params, handler)
+
+    assertTrue(system.hasConsumer(RideState.Params))
+    assertTrue(delivered.get(5, java.util.concurrent.TimeUnit.SECONDS) !== caller)
+  }
+
+  @Test
   fun `active ride profile is replayed to late consumers`() {
     system.setActiveRideProfile(indoor)
     val handler = CapturingHandler()
