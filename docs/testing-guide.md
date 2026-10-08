@@ -133,6 +133,10 @@ With `@HiltAndroidTest` and `@Config(application = HiltTestApplication::class)`,
 @Before fun inject() = hilt.inject()
 ```
 
+## Encrypted preferences
+
+Robolectric has no `AndroidKeyStore`, so `EncryptedSharedPreferences` or a `MasterKey` crashes where it is built. `FakeAndroidKeyStore.install()` registers an in-memory AES provider and `reset()` forgets the keys; it is only there so the setup code runs, and a round trip through `EncryptedSharedPreferences` is covered by the library's own tests. Call it where the code needs it: in a `@Before` when the extension builds the preferences in `onCreate` of its service, but from a test `Application` before `super.onCreate()` when an `Application.onCreate` does it, because Robolectric creates the application before any `@Before` runs.
+
 ## Waiting on state outside a recorder
 
 Recorders pump the main looper while they wait. When the thing to wait for is something else, such as a value the extension persisted to DataStore, use `karoo.awaitValue { ... }`: it pumps too. A bare `awaitValue` without an `idle` pump never runs the SDK's connect callback, so the extension never starts.

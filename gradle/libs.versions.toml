@@ -20,6 +20,7 @@ karoo-ext = { group = "com.github.hammerheadnav", name = "karoo-ext", version.re
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization-json" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version = "1.1.0-alpha06" }
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidx-test-core" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidx-test-runner" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-test-ext-junit" }
