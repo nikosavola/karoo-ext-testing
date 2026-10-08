@@ -44,6 +44,18 @@ class RuleAwaitTest {
   }
 
   @Test
+  fun `effects before a mark are ignored and a wait can leave the clock alone`() {
+    karoo.system.dispatchEffect(
+      (TurnScreenOn as KarooEffect).bundleWithSerializable(KAROO_SYSTEM_PACKAGE)
+    )
+    val mark = karoo.system.effects.size
+
+    karoo.assertNoEffect<TurnScreenOn>(forMs = 100, after = mark, pump = false)
+    assertThrows(AssertionError::class.java) { karoo.assertNoEffect<TurnScreenOn>(forMs = 100) }
+    assertEquals(TurnScreenOn, karoo.awaitEffect<TurnScreenOn>(timeoutMs = 100, pump = false))
+  }
+
+  @Test
   fun `assertNoEffect passes while nothing of the type arrives`() {
     dispatchLater(TurnScreenOn)
 

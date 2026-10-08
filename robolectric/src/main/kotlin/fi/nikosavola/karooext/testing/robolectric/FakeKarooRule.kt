@@ -19,6 +19,7 @@ import org.robolectric.Robolectric
 import org.robolectric.android.controller.ServiceController
 
 private const val RADIO_SETTLE_MS = 500L
+private val NO_PUMP: () -> Unit = {}
 
 /**
  * Binds the extension's KarooSystemService to an in-process `system` and tears everything down
@@ -98,16 +99,27 @@ class FakeKarooRule(
    *
    * @throws IllegalStateException if [probe] is still null after [timeoutMs].
    */
-  fun <T : Any> awaitValue(timeoutMs: Long = 20_000, probe: () -> T?): T =
-    fi.nikosavola.karooext.testing.awaitValue(timeoutMs, RobolectricPump::pumpMainLooper, probe)
+  fun <T : Any> awaitValue(timeoutMs: Long = 20_000, pump: Boolean = true, probe: () -> T?): T =
+    fi.nikosavola.karooext.testing.awaitValue(timeoutMs, idle(pump), probe)
+
+  private fun idle(pump: Boolean): () -> Unit =
+    if (pump) RobolectricPump::pumpMainLooper else NO_PUMP
 
   /**
    * Waits for the first dispatched effect of [T] matching [predicate], pumping like [awaitValue].
+   * Only effects from index [after] of `system.effects` on count, so `system.effects.size` taken
+   * earlier skips what came before. Every pump moves the Robolectric clock 20 ms, so pass `pump =
+   * false` in a test that measures time between samples.
    */
   inline fun <reified T : KarooEffect> awaitEffect(
     timeoutMs: Long = 20_000,
+    after: Int = 0,
+    pump: Boolean = true,
     crossinline predicate: (T) -> Boolean = { true },
-  ): T = awaitValue(timeoutMs) { system.effectsOf<T>().firstOrNull { predicate(it) } }
+  ): T =
+    awaitValue(timeoutMs, pump) {
+      system.effects.drop(after).filterIsInstance<T>().firstOrNull { predicate(it) }
+    }
 
   /**
    * Waits until the extension streams every one of [dataTypeIds]. Publish after this when the
@@ -128,11 +140,13 @@ class FakeKarooRule(
    */
   inline fun <reified T : KarooEffect> assertNoEffect(
     forMs: Long = 500,
+    after: Int = 0,
+    pump: Boolean = true,
     crossinline predicate: (T) -> Boolean = { true },
   ) {
     val seen =
       try {
-        awaitEffect<T>(forMs, predicate)
+        awaitEffect<T>(forMs, after, pump, predicate)
       } catch (_: AwaitTimeoutException) {
         null
       }
