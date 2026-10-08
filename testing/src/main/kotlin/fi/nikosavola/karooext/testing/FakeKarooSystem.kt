@@ -719,7 +719,19 @@ class FakeKarooSystem(
 
   /** Profile fixture factory: metric and imperial representative user profiles for tests. */
   companion object {
-    /** A [UserProfile] with metric units and representative values, the default profile. */
+    private const val MAX_HR = 190
+    private const val FTP = 250
+    private const val PERCENT = 100
+    private const val OPEN_ENDED_ZONE_MAX = 9999
+
+    // Coggan power zones as a share of FTP, and five heart rate zones as a share of max.
+    private val POWER_ZONE_STARTS = listOf(0, 56, 76, 91, 106, 121, 151)
+    private val HR_ZONE_STARTS = listOf(0, 60, 70, 80, 90)
+
+    /**
+     * A [UserProfile] with metric units and representative values, the default profile: 250 W FTP
+     * with seven power zones and a 190 bpm maximum with five heart rate zones.
+     */
     fun metricProfile(): UserProfile = profile(UserProfile.PreferredUnit.UnitType.METRIC)
 
     /**
@@ -751,11 +763,20 @@ class FakeKarooSystem(
       UserProfile(
         weight = 75f,
         preferredUnit = UserProfile.PreferredUnit(unit, unit, unit, unit),
-        maxHr = 190,
+        maxHr = MAX_HR,
         restingHr = 50,
-        heartRateZones = emptyList(),
-        ftp = 250,
-        powerZones = emptyList(),
+        heartRateZones = zonesFrom(MAX_HR, HR_ZONE_STARTS),
+        ftp = FTP,
+        powerZones = zonesFrom(FTP, POWER_ZONE_STARTS),
       )
+
+    // Zones tile the range without gaps, so a reading always lands in one, and the last is open.
+    private fun zonesFrom(base: Int, startsPercent: List<Int>): List<UserProfile.Zone> =
+      startsPercent.mapIndexed { index, start ->
+        val min = base * start / PERCENT
+        val max =
+          startsPercent.getOrNull(index + 1)?.let { base * it / PERCENT - 1 } ?: OPEN_ENDED_ZONE_MAX
+        UserProfile.Zone(min, max)
+      }
   }
 }
