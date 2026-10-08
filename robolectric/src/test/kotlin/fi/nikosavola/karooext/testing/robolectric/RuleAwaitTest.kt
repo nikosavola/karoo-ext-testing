@@ -9,6 +9,7 @@ import io.hammerhead.karooext.models.KarooEffect
 import io.hammerhead.karooext.models.KarooEventParams
 import io.hammerhead.karooext.models.OnStreamState
 import io.hammerhead.karooext.models.PlayBeepPattern
+import io.hammerhead.karooext.models.RideState
 import io.hammerhead.karooext.models.TurnScreenOn
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -62,14 +63,67 @@ class RuleAwaitTest {
   }
 
   @Test
-  fun `a second host for the same service is refused until the first is closed`() {
+  fun `a second host for the same service is refused while its service is running`() {
     val first = karoo.host<LifecycleExtension>()
 
     val error = assertThrows(IllegalStateException::class.java) { karoo.host<LifecycleExtension>() }
     assertTrue(error.message!!.contains("already running"))
+    assertTrue(error.message!!.contains("restart"))
 
     first.close()
-    karoo.host<LifecycleExtension>()
+    assertThrows(IllegalStateException::class.java) { karoo.host<LifecycleExtension>() }
+    karoo.restart<LifecycleExtension>()
+  }
+
+  @Test
+  fun `awaitConsumer returns once something listens`() {
+    Handler(Looper.getMainLooper()).post {
+      karoo.system.addEventConsumer(
+        "late",
+        (RideState.Params as KarooEventParams).bundleWithSerializable(KAROO_SYSTEM_PACKAGE),
+        CapturingHandler(),
+      )
+    }
+
+    karoo.awaitConsumer(RideState.Params, timeoutMs = 1_000)
+
+    assertTrue(karoo.system.hasConsumer(RideState.Params))
+  }
+
+  @Test
+  fun `awaitConsumer times out when nothing listens`() {
+    assertThrows(IllegalStateException::class.java) {
+      karoo.awaitConsumer(RideState.Params, timeoutMs = 100)
+    }
+  }
+
+  @Test
+  fun `restart replaces the service and keeps the fake system`() {
+    LifecycleExtension.reset()
+    val first = karoo.host<LifecycleExtension>()
+    karoo.system.setRideState(RideState.Recording)
+
+    val second = karoo.restart<LifecycleExtension>()
+
+    assertTrue(first.isClosed)
+    assertTrue(!second.isClosed)
+    assertEquals(1, LifecycleExtension.destroyed)
+    assertEquals(RideState.Recording, karoo.system.rideState)
+    assertThrows(IllegalStateException::class.java) { karoo.restart<ThrowingBindService>() }
+  }
+
+  @Test
+  fun `restart drops the consumers of the instance it destroyed`() {
+    ListeningExtension.reset()
+    karoo.host<ListeningExtension>()
+    karoo.awaitConsumer(RideState.Params)
+
+    karoo.restart<ListeningExtension>()
+    karoo.awaitValue { true.takeIf { karoo.system.consumerIds.size == 1 } }
+    karoo.system.setRideState(RideState.Recording)
+
+    karoo.awaitValue { ListeningExtension.heard.takeIf { 2 in it } }
+    assertTrue(1 !in ListeningExtension.heard.drop(1))
   }
 
   @Test

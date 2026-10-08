@@ -136,6 +136,21 @@ class ThrowingDestroyExtension : KarooExtension("throwing-destroy", "1.0") {
     fun reset() {
       destroyed = 0
     }
+
+    fun recordDestroy() {
+      destroyed += 1
+    }
+  }
+}
+
+/**
+ * A second class with the same destroy failure, since the rule keeps one running host per class.
+ */
+class OtherThrowingDestroyExtension : KarooExtension("other-throwing-destroy", "1.0") {
+  override fun onDestroy() {
+    ThrowingDestroyExtension.recordDestroy()
+    super.onDestroy()
+    throw ThrowingDestroyExtension.destroyBoom
   }
 }
 
@@ -216,5 +231,31 @@ class SelfSuppressExtension : KarooExtension("self-suppress", "1.0") {
 
   companion object {
     val sameBoom = IllegalStateException("same boom")
+  }
+}
+
+/**
+ * An extension that listens to the ride state and never unregisters, like one that relies on
+ * process death.
+ */
+class ListeningExtension : KarooExtension("listening", "1.0") {
+  private val me = created.incrementAndGet()
+
+  override fun onCreate() {
+    super.onCreate()
+    val karoo = io.hammerhead.karooext.KarooSystemService(applicationContext)
+    karoo.connect { connected ->
+      if (connected) karoo.addConsumer { _: io.hammerhead.karooext.models.RideState -> heard += me }
+    }
+  }
+
+  companion object {
+    val created = java.util.concurrent.atomic.AtomicInteger()
+    val heard = CopyOnWriteArrayList<Int>()
+
+    fun reset() {
+      created.set(0)
+      heard.clear()
+    }
   }
 }

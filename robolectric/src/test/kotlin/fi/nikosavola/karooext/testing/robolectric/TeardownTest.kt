@@ -58,8 +58,8 @@ class TeardownTest {
 
   @Test
   fun `repeated destroy failures do not stop the rest of cleanup`() {
-    karoo.host<ThrowingDestroyExtension>().close()
     karoo.host<ThrowingDestroyExtension>()
+    karoo.host<OtherThrowingDestroyExtension>()
     karoo.host<LifecycleExtension>()
 
     val thrown = assertThrows(IllegalStateException::class.java) { karoo.close() }

@@ -9,6 +9,7 @@ import fi.nikosavola.karooext.testing.FakeKarooHost
 import fi.nikosavola.karooext.testing.FakeKarooSystem
 import io.hammerhead.karooext.aidl.IKarooExtension
 import io.hammerhead.karooext.models.KarooEffect
+import io.hammerhead.karooext.models.KarooEventParams
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.rules.ExternalResource
@@ -50,6 +51,9 @@ class FakeKarooRule(
 
   private val hosts = CopyOnWriteArrayList<FakeKarooHost>()
   private val hostsByClass = ConcurrentHashMap<Class<out Service>, FakeKarooHost>()
+  private val consumersBefore = ConcurrentHashMap<Class<out Service>, Set<String>>()
+  private val controllersByClass =
+    ConcurrentHashMap<Class<out Service>, ServiceController<out Service>>()
   private val controllers = CopyOnWriteArrayList<ServiceController<out Service>>()
 
   @Volatile private var closed = false
@@ -135,6 +139,14 @@ class FakeKarooRule(
     if (seen != null) throw AssertionError("Expected no ${T::class.java.simpleName}, got $seen")
   }
 
+  /**
+   * Waits until the extension listens for [params], for example `RideState.Params`, pumping like
+   * [awaitValue]. Publish after this when the extension needs to see the value live.
+   */
+  fun awaitConsumer(params: KarooEventParams, timeoutMs: Long = 20_000) {
+    awaitValue(timeoutMs) { true.takeIf { system.hasConsumer(params) } }
+  }
+
   private fun describe(): String =
     hosts
       .map { it.describe() }
@@ -194,6 +206,7 @@ class FakeKarooRule(
     }
     hosts.clear()
     hostsByClass.clear()
+    controllersByClass.clear()
     controllers.clear()
     failure?.let { throw it }
   }
@@ -206,14 +219,16 @@ class FakeKarooRule(
   @Suppress("RethrowCaughtException", "TooGenericExceptionCaught")
   fun host(extension: Class<out Service>): FakeKarooHost {
     checkRuleOpen()
-    check(hostsByClass[extension]?.isClosed != false) {
-      "${extension.simpleName} is already running; reuse its host. Android keeps one service " +
-        "instance per class, and a second one would replace singletons the first set up."
+    check(controllersByClass[extension] == null) {
+      "${extension.simpleName} is already running; reuse its host, or call restart() for a new " +
+        "instance. Android keeps one service instance per class, and a second one would replace " +
+        "singletons the first set up."
     }
     // Assign and track the controller before create(), so an onCreate failure still leaves it to
     // destroy in the cleanup below.
     var controller: ServiceController<out Service>? = null
     try {
+      consumersBefore[extension] = system.consumerIds.toSet()
       val built = Robolectric.buildService(extension)
       controller = built
       controllers += built
@@ -224,6 +239,7 @@ class FakeKarooRule(
       val host = FakeKarooHost(IKarooExtension.Stub.asInterface(binder), RobolectricPump.invoke())
       hosts += host
       hostsByClass[extension] = host
+      controllersByClass[extension] = built
       return host
     } catch (t: Throwable) {
       controller?.let { failed ->
@@ -237,6 +253,33 @@ class FakeKarooRule(
       throw t
     }
   }
+
+  /**
+   * Stops [extension] and starts a fresh instance, leaving the fake system and its sticky state in
+   * place, as when the Karoo kills the extension process mid-ride. The old host is closed and its
+   * service destroyed, and every consumer registered since that service started is dropped, as a
+   * dead process would drop them, before the new one is created. With several services running,
+   * consumers registered by the others in that time are dropped too. Fails if [extension] is not
+   * running.
+   */
+  fun restart(extension: Class<out Service>): FakeKarooHost {
+    checkRuleOpen()
+    val old = checkNotNull(hostsByClass[extension]) { "${extension.simpleName} is not running" }
+    old.close()
+    controllersByClass.remove(extension)?.let {
+      controllers -= it
+      it.destroy()
+    }
+    RobolectricPump.pumpMainLooper()
+    // A dead process takes its binder consumers with it; an extension that never unregistered
+    // them would otherwise keep running callbacks of the destroyed instance.
+    val before = consumersBefore[extension].orEmpty()
+    (system.consumerIds - before).forEach(system::removeEventConsumer)
+    return host(extension)
+  }
+
+  /** Reified convenience overload of [restart], for `karoo.restart<MyExtension>()`. */
+  inline fun <reified T : Service> restart(): FakeKarooHost = restart(T::class.java)
 
   /** Reified convenience overload of [host] for `karoo.host<MyExtension>()`. */
   inline fun <reified T : Service> host(): FakeKarooHost = host(T::class.java)
