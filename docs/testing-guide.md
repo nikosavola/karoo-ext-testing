@@ -278,6 +278,8 @@ ANT+ cannot be faked like BLE: it goes through Dynastream's own radio service. K
 
 For retry and ordering tests use a strict sequence. `HttpResponses.sequence(vararg answers)` hands out one answer per request and, on exhaustion, throws instead of repeating the last one. Read that throw correctly: `SequenceResponder` throws when called directly, but through the fake, `FakeKarooSystem.serve()` catches an exception from any responder and turns it into a status-0 `Complete` whose error string is the exception class name. So an unexpected extra poll does not raise in the test thread; it reaches the extension as a transport failure. Assert on the extension's behavior and on how many requests it made, not on an exception.
 
+`system.httpRequests` is the log of requests; `httpRequestsTo("ntfy.sh")` keeps those whose URL contains the text, so background traffic such as an update check does not count.
+
 `remainingResponses` reports how many answers are left, but it is only meaningful after the extension has actually polled. Set the sequence, drive the extension, then assert:
 
 ```kotlin
