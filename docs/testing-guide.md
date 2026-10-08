@@ -368,6 +368,8 @@ For text measurement and wrapping in Robolectric, annotate the test with `@Graph
 
 These are examples, not Karoo profiles or thresholds: replace them with the dimensions your target actually reports, and set expectations from the measured view, not from device profiles. Vary font scale, density, locale/RTL and night with Robolectric qualifiers on configured contexts to assert the extension still renders correctly. This helper does not certify the Karoo's own renderer and makes no automatic clipping or accessibility guarantee.
 
+A field that draws its value into a bitmap has no text for `texts()` to read; render it under `@GraphicsMode(GraphicsMode.Mode.NATIVE)` and compare the bitmaps, with a negative control that differs, instead.
+
 The existing `descendants()` helper also reaches views for semantics checks; `texts()` reads strings only and does not check accessibility. For an icon, assert the extension's chosen content description:
 
 ```kotlin
