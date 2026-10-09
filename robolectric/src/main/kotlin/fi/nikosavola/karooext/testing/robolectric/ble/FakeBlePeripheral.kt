@@ -131,7 +131,7 @@ private constructor(
 
   /** Characteristics the extension currently has notifications or indications enabled on. */
   val subscribedCharacteristics: Set<UUID>
-    get() = subscriptions.toSet()
+    get() = LinkedHashSet(subscriptions)
 
   /**
    * Sends one advertisement to every running scan whose filters match, once a scan is running. The

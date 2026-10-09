@@ -227,7 +227,7 @@ class FakeKarooSystem(
 
   /** Registered ordinary consumer ids, e.g. to drive a terminal callback on one. */
   val consumerIds: List<String>
-    get() = consumers.keys.toList()
+    get() = ArrayList(consumers.keys)
 
   /** HTTP requests registered but not yet answered or cancelled. */
   val pendingHttpCount: Int
