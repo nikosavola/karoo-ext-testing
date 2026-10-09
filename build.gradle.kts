@@ -217,9 +217,13 @@ subprojects {
   // The plugin's own ktfmt tasks find sources through KGP source sets, which AGP 9's built-in
   // Kotlin never registers, so they pass without reading a file. Point them at src/ explicitly.
   tasks.register<com.ncorti.ktfmt.gradle.tasks.KtfmtCheckTask>("ktfmtCheckKotlin") {
+    group = "verification"
+    description = "Check Kotlin sources under src/ with ktfmt"
     source(fileTree("src") { include("**/*.kt") })
   }
   tasks.register<com.ncorti.ktfmt.gradle.tasks.KtfmtFormatTask>("ktfmtFormatKotlin") {
+    group = "formatting"
+    description = "Format Kotlin sources under src/ with ktfmt"
     source(fileTree("src") { include("**/*.kt") })
   }
   // ktfmt is the formatting authority, so ktlint must see its output, never race it.
@@ -227,6 +231,8 @@ subprojects {
 
   // An empty tree makes the tasks above NO-SOURCE, which passes silently.
   tasks.register("ktfmtSourcesNotEmpty") {
+    group = "verification"
+    description = "Fail when ktfmt would match no Kotlin sources"
     val sources = fileTree("src") { include("**/*.kt") }
     doLast { check(!sources.isEmpty) { "ktfmt matched no .kt files in ${project.path}/src" } }
   }
