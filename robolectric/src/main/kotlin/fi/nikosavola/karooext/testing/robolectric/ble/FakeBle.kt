@@ -134,11 +134,24 @@ class FakeBle(private val app: Application) {
   }
 
   /** Active scan callbacks with the filters each one registered. */
-  internal fun activeScans() =
+  internal fun activeScans() = retryOnModification {
     adapter.bluetoothLeScanner
       ?.let { shadowOf(it).activeScans }
       .orEmpty()
       .filter { it.scanCallback() != null }
+  }
+
+  // The shadow hands out its live scan set, which the extension's own threads can change mid-read.
+  private inline fun <T> retryOnModification(block: () -> T): T {
+    repeat(SCAN_READ_ATTEMPTS - 1) {
+      try {
+        return block()
+      } catch (_: ConcurrentModificationException) {
+        // read again from the new state
+      }
+    }
+    return block()
+  }
 
   private fun activeScanCallbacks(): List<ScanCallback> =
     activeScans().mapNotNull { it.scanCallback() }
@@ -160,3 +173,5 @@ class FakeBle(private val app: Application) {
     return delivered
   }
 }
+
+private const val SCAN_READ_ATTEMPTS = 5
