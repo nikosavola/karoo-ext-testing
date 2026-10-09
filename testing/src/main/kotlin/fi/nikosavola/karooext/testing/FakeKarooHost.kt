@@ -410,8 +410,8 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
     var size = recorded.size
     var since = TimeSource.Monotonic.markNow()
     while (since.elapsedNow().inWholeNanoseconds < quietNanos) {
-      if (deadline.hasPassedNow()) {
-        throw IllegalStateException(timeoutMessage("${timeoutMs}ms", "$quietMs ms without items"))
+      check(!deadline.hasPassedNow()) {
+        timeoutMessage("${timeoutMs}ms", "$quietMs ms without items")
       }
       pump()
       lock.withLock { arrived.awaitNanos(POLL_NANOS) }
@@ -482,9 +482,7 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
       }
       terminal?.let { throw IllegalStateException(it) }
       val elapsed = start.elapsedNow().inWholeNanoseconds
-      if (elapsed >= timeoutNanos) {
-        throw IllegalStateException(timeoutMessage(display, "a matching item"))
-      }
+      check(elapsed < timeoutNanos) { timeoutMessage(display, "a matching item") }
       val left = timeoutNanos - elapsed
       pump()
       lock.withLock { arrived.awaitNanos(minOf(left, POLL_NANOS)) }
@@ -492,15 +490,15 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
   }
 
   private fun awaitCompleteNanos(timeoutNanos: Long, display: String) {
-    if (!waitUntil(timeoutNanos) { completed || error != null }) {
-      throw IllegalStateException(timeoutMessage(display, "completion"))
+    check(waitUntil(timeoutNanos) { completed || error != null }) {
+      timeoutMessage(display, "completion")
     }
     error?.let { throw IllegalStateException("error before completion: $it; got ${recent()}") }
   }
 
   private fun awaitErrorNanos(timeoutNanos: Long, display: String): String {
-    if (!waitUntil(timeoutNanos) { error != null || completed }) {
-      throw IllegalStateException(timeoutMessage(display, "an error"))
+    check(waitUntil(timeoutNanos) { error != null || completed }) {
+      timeoutMessage(display, "an error")
     }
     return error ?: throw IllegalStateException("completed without an error; got ${recent()}")
   }
