@@ -1,3 +1,4 @@
+import org.gradle.util.GradleVersion
 import org.jetbrains.dokka.gradle.DokkaExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.sonarqube.gradle.SonarExtension
@@ -7,7 +8,57 @@ import org.sonarqube.gradle.SonarExtension
 // version catalog isn't available this early; keep in sync with `kotlin` in
 // gradle/libs.versions.toml.
 
-buildscript { dependencies { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20") } }
+buildscript {
+  dependencies { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20") }
+
+  // Build tooling (AGP, Dokka, Sonar) drags in vulnerable transitives that are never published or
+  // shipped. Raise them to the patched release; versions that are already newer stay.
+  val patched =
+    mapOf(
+      "com.fasterxml.jackson.core:jackson-core" to "2.18.11",
+      "com.fasterxml.jackson.core:jackson-databind" to "2.18.11",
+      "org.bouncycastle:bcprov-jdk18on" to "1.85",
+      "org.bouncycastle:bcpkix-jdk18on" to "1.85",
+      "org.bitbucket.b_c:jose4j" to "0.9.6",
+      "org.freemarker:freemarker" to "2.3.35",
+      "org.jdom:jdom2" to "2.0.6.1",
+      "org.jsoup:jsoup" to "1.23.2",
+    )
+  extra["patchedBuildTooling"] = patched
+  configurations.classpath {
+    resolutionStrategy.eachDependency {
+      val min = patched["${requested.group}:${requested.name}"]
+      val have = requested.version
+      if (
+        min != null &&
+          !have.isNullOrBlank() &&
+          GradleVersion.version(have) < GradleVersion.version(min)
+      ) {
+        useVersion(min)
+      }
+    }
+  }
+}
+
+// Dokka and the other tools resolve their own configurations. resolutionStrategy is not published,
+// unlike dependency constraints, so consumers of the artifacts are unaffected.
+@Suppress("UNCHECKED_CAST")
+allprojects {
+  val patched = rootProject.extra["patchedBuildTooling"] as Map<String, String>
+  configurations.configureEach {
+    resolutionStrategy.eachDependency {
+      val min = patched["${requested.group}:${requested.name}"]
+      val have = requested.version
+      if (
+        min != null &&
+          !have.isNullOrBlank() &&
+          GradleVersion.version(have) < GradleVersion.version(min)
+      ) {
+        useVersion(min)
+      }
+    }
+  }
+}
 
 plugins {
   alias(libs.plugins.android.library) apply false
@@ -21,8 +72,16 @@ plugins {
   alias(libs.plugins.sonarqube)
 }
 
-// SonarCloud reads the JaCoCo XML that `selfTest` writes. Paths must be absolute: this property
-// set is resolved against each module's dir, not the root, when the scanner runs.
+// SonarCloud reads the JaCoCo XML that `selfTest` writes plus the lint reports. Paths must be
+// absolute: this property set is resolved against each module's dir, not the root, when the scanner
+// runs.
+val sonarModules = listOf("testing", "robolectric", "appstore")
+
+fun sonarPaths(vararg relative: String) =
+  sonarModules
+    .flatMap { module -> relative.map { file("$module/build/$it").absolutePath } }
+    .joinToString(",")
+
 sonar {
   properties {
     property("sonar.projectKey", "nikosavola_karoo-ext-testing")
@@ -30,12 +89,21 @@ sonar {
     property("sonar.host.url", "https://sonarcloud.io")
     property(
       "sonar.coverage.jacoco.xmlReportPaths",
-      listOf(
-          file("testing/build/reports/coverage/test/debug/report.xml"),
-          file("robolectric/build/reports/coverage/test/debug/report.xml"),
-          file("appstore/build/reports/coverage/test/debug/report.xml"),
-        )
-        .joinToString(",") { it.absolutePath },
+      sonarPaths("reports/coverage/test/debug/report.xml"),
+    )
+    property("sonar.androidLint.reportPaths", sonarPaths("reports/lint-results-debug.xml"))
+    property("sonar.kotlin.detekt.reportPaths", sonarPaths("reports/detekt/detekt.xml"))
+    property(
+      "sonar.kotlin.ktlint.reportPaths",
+      sonarPaths(
+        "reports/ktlint/ktlintMainSourceSetCheck/ktlintMainSourceSetCheck.xml",
+        "reports/ktlint/ktlintTestSourceSetCheck/ktlintTestSourceSetCheck.xml",
+        "reports/ktlint/ktlintKotlinScriptCheck/ktlintKotlinScriptCheck.xml",
+      ),
+    )
+    property(
+      "sonar.githubactions.actionlint.reportPaths",
+      file("build/reports/actionlint.json").absolutePath,
     )
   }
 }
@@ -137,7 +205,14 @@ subprojects {
   apply(plugin = "dev.detekt")
 
   configure<com.ncorti.ktfmt.gradle.KtfmtExtension> { googleStyle() }
-  configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> { version.set("1.8.0") }
+  configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
+    version.set("1.8.0")
+    // Sonar imports the checkstyle XML; the plain report stays for people.
+    reporters {
+      reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.PLAIN)
+      reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.CHECKSTYLE)
+    }
+  }
 
   // The plugin's own ktfmt tasks find sources through KGP source sets, which AGP 9's built-in
   // Kotlin never registers, so they pass without reading a file. Point them at src/ explicitly.

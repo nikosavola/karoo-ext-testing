@@ -6,10 +6,10 @@ Notes for working on this repository: the local workflow, one-time service setup
 
 JDK 21 is required. The `justfile` at the repo root wraps the common commands; run `just` to list them.
 
-- `just verify` runs `lintAll`, `build`, `test`, `selfTest` and `:dokkaGeneratePublicationHtml`, the same set the CI workflow checks.
+- `just verify` runs `lintAll`, `build`, `test`, `selfTest` and `:dokkaGeneratePublicationHtml`, the same set the `Lint`, `Build` and `Test` jobs of the CI workflow check.
 - `just self-test` runs only the fakes' own debug unit tests and writes JaCoCo coverage to `*/build/reports/coverage/test/debug`. There is no coverage threshold: the reports show which fake paths a test actually exercises.
 - `just integration-build` assembles the separate-process fixture and its instrumentation APKs without installing them.
-- `just integration-test emulator-5554` runs the smoke tests on an explicit serial, after checking it is a dedicated `karoo-library-smoke-*` AVD. See the testing guide's test strategy section for choosing a layer.
+- `just integration-test emulator-5554` runs the smoke tests (the `Smoke` CI job) on an explicit serial, after checking it is a dedicated `karoo-library-smoke-*` AVD. See the testing guide's test strategy section for choosing a layer.
 - `just docs` builds the Dokka API site into `build/dokka/html`, and `just docs-serve` serves it on [http://127.0.0.1:8000](http://127.0.0.1:8000) with Python 3's `http.server`; override the port with `just docs-serve 9000`.
 - `just lint`, `just test` and `just build` run `lintAll`, `test` and `build` on their own.
 
@@ -40,7 +40,7 @@ Substitute the other two modules the same way if you use them. `./gradlew publis
 ## One-time repository setup
 
 - Pages: **Settings > Pages > Build and deployment > Source: GitHub Actions**. The `Docs` workflow builds the API site on pushes to `main` and publishes it; run it manually from the Actions tab to build the site without publishing a feature branch.
-- Coverage and analysis: CI uploads JaCoCo coverage and JUnit results to [Codecov](https://codecov.io/gh/nikosavola/karoo-ext-testing), and the `SonarQube` workflow runs [SonarQube Cloud](https://sonarcloud.io/summary/new_code?id=nikosavola_karoo-ext-testing) analysis. Import the repository through both services' GitHub integrations, use project key `nikosavola_karoo-ext-testing` and organization `nikosavola`, add `CODECOV_TOKEN` and `SONAR_TOKEN` repository secrets, and disable SonarQube Cloud automatic analysis so Gradle CI handles it. Once Codecov is active, set `fail_ci_if_error: true` on the upload steps. Until then Codecov uploads tolerate failure, and SonarQube analysis skips when `SONAR_TOKEN` is unset.
+- Coverage and analysis: CI uploads JaCoCo coverage and JUnit results to [Codecov](https://codecov.io/gh/nikosavola/karoo-ext-testing), and the `Sonar` job of the CI workflow runs [SonarQube Cloud](https://sonarcloud.io/summary/new_code?id=nikosavola_karoo-ext-testing) analysis. Import the repository through both services' GitHub integrations, use project key `nikosavola_karoo-ext-testing` and organization `nikosavola`, add `CODECOV_TOKEN` and `SONAR_TOKEN` repository secrets, and disable SonarQube Cloud automatic analysis so Gradle CI handles it. The Codecov uploads tolerate failure, so an outage does not block a merge, and the Sonar analysis skips when `SONAR_TOKEN` is unset, as on fork pull requests. The branch ruleset requires the `Lint`, `Build`, `Test` and `Smoke` checks; rename them there when a job is renamed.
 - Security: enable private vulnerability reporting under **Settings > Code security**, which the [security policy](../.github/SECURITY.md) points reporters to.
 
 ## Releasing

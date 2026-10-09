@@ -1,6 +1,8 @@
 # karoo-ext-testing
 
 [![CI](https://github.com/nikosavola/karoo-ext-testing/actions/workflows/ci.yml/badge.svg)](https://github.com/nikosavola/karoo-ext-testing/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/nikosavola/karoo-ext-testing/graph/badge.svg)](https://codecov.io/gh/nikosavola/karoo-ext-testing)
+[![Quality gate](https://sonarcloud.io/api/project_badges/measure?project=nikosavola_karoo-ext-testing&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=nikosavola_karoo-ext-testing)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Test doubles for the Karoo system side of [karoo-ext](https://github.com/hammerheadnav/karoo-ext). They let a Karoo extension be tested on the JVM with Robolectric, and on an emulator without a Karoo, by standing in for the `KarooSystemService` the extension binds to.
