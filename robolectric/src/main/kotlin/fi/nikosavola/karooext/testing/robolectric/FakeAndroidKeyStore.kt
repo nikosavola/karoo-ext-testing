@@ -89,7 +89,7 @@ object FakeAndroidKeyStore {
 
     /** Lists the aliases of every stored key. */
     override fun engineAliases(): java.util.Enumeration<String> =
-      Collections.enumeration(keys.keys.toList())
+      Collections.enumeration(ArrayList(keys.keys))
 
     /** Whether a key exists under [alias]. */
     override fun engineContainsAlias(alias: String) = keys.containsKey(alias)
