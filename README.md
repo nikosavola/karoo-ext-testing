@@ -160,6 +160,7 @@ Connected tests install on every attached device. Never run them with a real Kar
 
 - [Testing guide](docs/testing-guide.md): recipes for binding a real extension service, driving sensor streams, HTTP sequences and failure paths, BLE devices, FIT, device and bonus outputs, cleanup assertions and time.
 - [API reference](https://nikosavola.github.io/karoo-ext-testing/): Dokka HTML for all three modules.
+- [llms.txt](https://nikosavola.github.io/karoo-ext-testing/llms.txt) and [llms-full.txt](https://nikosavola.github.io/karoo-ext-testing/llms-full.txt): the same documentation as Markdown for LLM tools.
 - [Maintaining](docs/maintaining.md): local workflow, one-time repository setup and releasing.
 
 ## Contributing

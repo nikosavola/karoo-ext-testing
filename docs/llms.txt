@@ -1,0 +1,26 @@
+# karoo-ext-testing
+
+> Test doubles for the Karoo system side of karoo-ext. They let a Karoo extension be tested on the JVM with Robolectric, and on an emulator without a Karoo, by standing in for the `KarooSystemService` the extension binds to. Test and debug tooling only: do not ship these artifacts in a release APK. The API is pre-1.0 and may still change.
+
+The library is Kotlin and published as three artifacts under the group `com.github.nikosavola.karoo-ext-testing`: `karoo-ext-testing` (the fakes, `FakeKarooSystem` and `FakeKarooHost`), `karoo-ext-testing-robolectric` (`FakeKarooRule`, `FakeKarooBinding`, the fake BLE peripheral and `FakeAndroidKeyStore`) and `karoo-ext-testing-appstore` (an Android library for emulator tests). Releases are served from JitPack and GitHub Packages, see the tags on GitHub for the latest version. The Karoo itself, ANT+ hardware and real device behavior are not simulated.
+
+## Documentation
+
+- [Testing guide](https://nikosavola.github.io/karoo-ext-testing/testing-guide.md): recipes for binding a real extension service, driving sensor streams, HTTP sequences and failure paths, BLE devices, FIT, device and bonus outputs, cleanup assertions and time
+- [Robolectric module](https://nikosavola.github.io/karoo-ext-testing/robolectric.md): FakeKarooRule, FakeKarooBinding, RobolectricPump, FakeBle and FakeAndroidKeyStore
+- [Appstore module](https://nikosavola.github.io/karoo-ext-testing/appstore.md): the `io.hammerhead.appstore` stand-in for emulator tests
+- [README](https://github.com/nikosavola/karoo-ext-testing/blob/main/README.md): install, requirements, a Robolectric quick start and a BLE example
+
+## API reference
+
+- [karoo-ext-testing](https://nikosavola.github.io/karoo-ext-testing/testing/index.html): FakeKarooSystem, FakeKarooHost, recorders, HTTP responders, SensorPoints, polyline helpers
+- [karoo-ext-testing-robolectric](https://nikosavola.github.io/karoo-ext-testing/robolectric/index.html): FakeKarooRule, FakeKarooBinding, RobolectricPump, FakeBle, FakeBlePeripheral, FakeAndroidKeyStore
+- [karoo-ext-testing-appstore](https://nikosavola.github.io/karoo-ext-testing/appstore/index.html): the AppStoreService stand-in and the FakeKaroo singleton
+
+## Optional
+
+- [Full documentation in one file](https://nikosavola.github.io/karoo-ext-testing/llms-full.txt): the README, the testing guide and the module docs concatenated
+- [Source repository](https://github.com/nikosavola/karoo-ext-testing)
+- [Maintaining](https://github.com/nikosavola/karoo-ext-testing/blob/main/docs/maintaining.md): local workflow, repository setup and releasing
+- [Contributing](https://github.com/nikosavola/karoo-ext-testing/blob/main/.github/CONTRIBUTING.md)
+- [karoo-ext](https://github.com/hammerheadnav/karoo-ext): the Hammerhead SDK these fakes stand in for
