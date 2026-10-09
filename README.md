@@ -1,54 +1,34 @@
 # karoo-ext-testing
 
-Test doubles for the Karoo system side of [karoo-ext](https://github.com/hammerheadnav/karoo-ext). They let a
-Karoo extension be tested on the JVM with Robolectric, and on an emulator without a Karoo, by standing in for the
-`KarooSystemService` the extension binds to.
+[![CI](https://github.com/nikosavola/karoo-ext-testing/actions/workflows/ci.yml/badge.svg)](https://github.com/nikosavola/karoo-ext-testing/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Test and debug tooling only: do not ship these artifacts in a release APK.
+Test doubles for the Karoo system side of [karoo-ext](https://github.com/hammerheadnav/karoo-ext). They let a Karoo extension be tested on the JVM with Robolectric, and on an emulator without a Karoo, by standing in for the `KarooSystemService` the extension binds to.
 
-## Docs
+Test and debug tooling only: do not ship these artifacts in a release APK. The API is pre-1.0 and may still change.
 
-- [Testing guide](docs/testing-guide.md): recipes for binding a real extension service, driving sensor streams, HTTP sequence and failure paths, FIT/device/bonus outputs, cleanup assertions, and time.
-- [API reference](https://nikosavola.github.io/karoo-ext-testing/): Dokka HTML for all three modules, with source links pinned to the commit it was built from. The `Docs` workflow builds it on pushes to `main` and publishes through GitHub Pages, which is not live until a one-time repository setup: **Settings > Pages > Build and deployment > Source: GitHub Actions**. Run the workflow manually from the Actions tab to build the site without publishing a feature branch.
+## What you can test
 
-## Artifacts
+Your real extension service runs unchanged against the fakes, so a test can:
 
-Three artifacts, all published together:
+- drive data streams, location, ride state, navigation, routes, the user profile and ride profiles, and see what the extension streams back
+- script HTTP responses, including retries, failures and request ordering
+- record views, map effects, FIT writes, alerts, device scans and device connections
+- fake a Bluetooth LE sensor or light that the extension scans for and connects to, down to the GATT writes it sends
+- assert that Bluetooth and ANT resource claims are released, that consumers are cleaned up and that a restart mid-ride recovers
+- render `RemoteViews` under field bounds, control time, and run code that needs `AndroidKeyStore`
 
-- `karoo-ext-testing`: `FakeKarooSystem` (an in-process `IKarooSystem`, `Closeable`), `FakeKarooHost` and its
-  recorders for streams, views, maps, scans, device connections and FIT, HTTP responders (`HttpResponder`,
-  `HttpResponses`, `SequenceResponder`, `RoutingResponder`, `LiveResponder`), `CapturingHandler` and `awaitValue`,
-  RemoteViews inspection helpers, `SensorPoints` builders, and `encodePolyline`/`decodePolyline`.
-- `karoo-ext-testing-robolectric`: `FakeKarooBinding.install` to point KarooSystemService's bind at a
-  `FakeKarooSystem`, `RobolectricPump`, a generic `FakeKarooRule`, a fake BLE peripheral (`FakeBle`,
-  `FakeBlePeripheral`) and `FakeAndroidKeyStore`.
-- `karoo-ext-testing-appstore`: an Android library whose manifest declares the exported
-  `io.hammerhead.appstore.service.AppStoreService` returning a process-wide `FakeKaroo.system`, for emulator tests.
+ANT+ cannot be faked: the Dynastream service has no Robolectric shadow, so test the extension's own logic around it and its resource claims. Nothing here proves behavior on real Karoo hardware.
 
-## karoo-ext is compileOnly
+## Install
 
-Every artifact depends on karoo-ext with `compileOnly`. It is never brought in transitively: consumers bring their
-own karoo-ext, and some use different coordinates. Add it yourself, matching whatever your extension already uses:
+Three artifacts are published together:
 
-```kotlin
-testImplementation("com.github.hammerheadnav:karoo-ext:1.1.9")
-```
+- `karoo-ext-testing`: `FakeKarooSystem` (an in-process `IKarooSystem`), `FakeKarooHost` and its recorders for streams, views, maps, scans, device connections and FIT, HTTP responders (`HttpResponses`, `SequenceResponder`, `RoutingResponder`, `LiveResponder`), `SensorPoints` builders, RemoteViews inspection helpers and `encodePolyline`/`decodePolyline`.
+- `karoo-ext-testing-robolectric`: `FakeKarooBinding`, `FakeKarooRule`, `RobolectricPump`, the fake BLE peripheral (`FakeBle`, `FakeBlePeripheral`) and `FakeAndroidKeyStore`.
+- `karoo-ext-testing-appstore`: an Android library that declares the `io.hammerhead.appstore.service.AppStoreService` stand-in, for emulator tests.
 
-`FakeKarooSystem` uses karoo-ext's own JSON-in-Bundle encoders, so a wire-format change breaks the fakes too.
-kotlinx-serialization-json is compileOnly as well; karoo-ext brings it at runtime.
-
-## Coordinates
-
-Each tag is published twice under the same coordinates, so a consumer only picks the repository. The appstore dependency belongs in a dedicated debug fixture app, not your library; the `testImplementation` lines belong in your test source set:
-
-```kotlin
-testImplementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing:<tag>")
-testImplementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing-robolectric:<tag>")
-// Debug-only fixture app: release variant disabled, manifest testOnly.
-debugImplementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing-appstore:<tag>")
-```
-
-JitPack builds the tag on first request (`jitpack.yml`) and needs no credentials:
+Add them to the test source set, with the JitPack repository restricted to this group:
 
 ```kotlin
 // settings.gradle.kts, dependencyResolutionManagement.repositories
@@ -56,9 +36,13 @@ exclusiveContent {
   forRepository { maven("https://jitpack.io") }
   filter { includeGroup("com.github.nikosavola.karoo-ext-testing") }
 }
+
+// build.gradle.kts
+testImplementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing:<tag>")
+testImplementation("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing-robolectric:<tag>")
 ```
 
-GitHub Packages gets the same build from the publish workflow when a tag is pushed. Its Maven feed needs a token with `read:packages` even for public packages, from `~/.gradle/gradle.properties` locally or `GITHUB_TOKEN` in Actions:
+Use the latest [release tag](https://github.com/nikosavola/karoo-ext-testing/tags) for `<tag>`. The same build is also published to GitHub Packages, whose Maven feed needs a token with `read:packages` even for public packages:
 
 ```kotlin
 exclusiveContent {
@@ -74,14 +58,25 @@ exclusiveContent {
 }
 ```
 
-## Releasing
+Every artifact depends on karoo-ext with `compileOnly`, so it is never brought in transitively and some consumers use different coordinates. Add yours, matching what your extension already uses:
 
-Tag a plain version, `git tag 0.1.0 && git push origin 0.1.0`. JitPack uses the tag name as the version, so no `v` prefix. The publish workflow lints, tests and pushes to GitHub Packages; open `https://jitpack.io/#nikosavola/karoo-ext-testing` once to start the JitPack build and check its log. `gradle.properties` only holds the version for local builds.
+```kotlin
+testImplementation("com.github.hammerheadnav:karoo-ext:1.1.9")
+```
 
-## Robolectric
+| | Supported |
+| --- | --- |
+| Consumer toolchain | Kotlin 2.0 or newer, JVM target 1.8 or newer |
+| Artifacts | minSdk 23, minCompileSdk 33 |
+| karoo-ext | built against 1.1.9; FIT needs 1.1.4, `setRoute` 1.1.6, `bonusAction` 1.1.7 |
+| Robolectric | any version for the core fakes; the BLE fake needs API 26 or newer and Robolectric 4.17 with compileSdk 36, or 4.16.1 |
+| Test JDK | 17 or newer |
 
-Bind the extension's `KarooSystemService` to the fake, start your real extension service the way the Karoo ride
-app does, and drive it:
+The [testing guide](docs/testing-guide.md) has the details, including Robolectric 4.17 and compileSdk.
+
+## Quick start with Robolectric
+
+Bind the extension's `KarooSystemService` to the fake, start your real extension service the way the Karoo ride app does, and drive it:
 
 ```kotlin
 @RunWith(RobolectricTestRunner::class)
@@ -101,39 +96,38 @@ class MyFieldTest {
 }
 ```
 
-`FakeKarooRule` installs the binding before each test (via `FakeKarooBinding.install`) and tears everything down
-after: it closes every host (stopping its sessions), destroys their services, then closes the fake system. If you do
-not want the rule, call `FakeKarooBinding.install(application, system)` yourself and pass
-`RobolectricPump.invoke()` as a recorder's `pump` so main-thread work runs while a test blocks.
+`FakeKarooRule` installs the binding before each test and tears everything down after: it closes every host, destroys their services, then closes the fake system. Without the rule, call `FakeKarooBinding.install(application, system)` yourself and pass `RobolectricPump.invoke()` as a recorder's `pump` so main-thread work runs while a test blocks. An app that connects in `Application.onCreate` (a Koin or Hilt singleton, say) binds before any rule runs; see `FakeKarooBinding.installEarly` in the guide.
 
-An app that connects to Karoo in `Application.onCreate` (a Koin or Hilt singleton, say) binds before any rule runs;
-call `FakeKarooBinding.installEarly(this)` from a test `Application` registered with `@Config(application = ...)`
-and the rule adopts that system. See the [testing guide](docs/testing-guide.md).
+A BLE device is a few lines on top of that:
 
-`FakeKarooSystem` replays the current value to a consumer that registers late: location, navigation, ride state,
-user profile, active page, active ride profile and stream state. The SDK documents this replay only for ride state and user profile; the
-rest is fake policy chosen for deterministic tests. Set them with `setLocation` (which also publishes a LOCATION
-stream point), `setActiveRideProfile`, `setMapZoom`, `setSticky(params, event)` for other state-like events, `setNavigation`, `setRoute` (a
-polyline the ride app would follow, with its length measured along it), `setRideState`, `setUserProfile` and
-`showPage`; publish one-shot events keyed by params with `publish(params, event)`, and drive built-in data types with
-`setStreamState(id, state)` or `setDataPoint(id, value)`. `reset()` clears everything back to defaults and stays
-reusable; `close()` is terminal. Bridged HTTP requests go through `responder` and are recorded in `httpRequests`;
-effects the extension dispatches land in `effects` (filter with `effectsOf<T>()`). Recorders expose `items` read-only
-plus `completed`/`error`, with `await` (Long and `Duration`), `awaitComplete` and `awaitError`; `consumerCount`,
-`consumerParams`, `pendingHttpCount` and `streams` let a test assert cleanup. `HttpResponses.sequence(...)` answers
-requests in order, one per request; a request past the end becomes a status 0 error carrying the exception class name
-through the fake, so assert the request count or `remainingResponses` rather than relying on a loud failure.
-`completeConsumer(id)` and `errorConsumer(id, message)` drive a consumer's
-terminal callbacks as a raw handler hook, and `libVersion` reports the SDK the fake was built against unless the
-constructor overrides it. `RobolectricPump.advanceBy(Duration)` advances the Robolectric main looper
-clock; virtualizing the SDK's own wall clock for the view frame throttle is a per-test opt-in described in the
-[testing guide](docs/testing-guide.md).
+```kotlin
+val ble = FakeBle(karoo.app)
+val light = ble.peripheral("AA:BB:CC:DD:EE:01", name = "B54 light") {
+  service(NUS_SERVICE, advertised = true) {
+    characteristic(NUS_RX, write = true)
+    characteristic(NUS_TX, notify = true)
+  }
+}
+ble.grantPermissions()
+val events = karoo.host<MyExtension>().connectDevice("my-light-AA:BB:CC:DD:EE:01")
 
-## Emulator
+light.advertise()                 // waits for the extension to scan
+light.connect()                   // waits for connectGatt, then accepts it
+light.awaitSubscribed(NUS_TX)
+light.notify(NUS_TX, "\$L12800".toByteArray())
+val keepalive = light.awaitWrite(NUS_RX)
+```
 
-Create a tiny app module with `applicationId io.hammerhead.appstore` that depends on the appstore artifact, and run
-your instrumentation tests there. karoo-ext's `KarooSystemService` binds `io.hammerhead.appstore.service.AppStoreService`
-by name, so the fake answers in place of the real system app:
+## How the fake system behaves
+
+- It replays the current value to a consumer that registers late: location, navigation, ride state, user profile, active page, active ride profile and stream state. The SDK documents this replay only for ride state and user profile, so the rest is fake policy chosen for deterministic tests.
+- State is set with `setLocation`, `setNavigation`, `setRoute`, `setRideState`, `setUserProfile`, `setActiveRideProfile`, `setMapZoom`, `showPage`, `setSavedDevices` and `setSticky(params, event)`, and one-shot events go out with `publish(params, event)`. Built-in data types are driven with `setStreamState(id, state)` or `setDataPoint(id, value)`.
+- Bridged HTTP requests go through `responder` and are recorded in `httpRequests`. Effects the extension dispatches land in `effects`.
+- `consumerCount`, `consumerParams`, `pendingHttpCount`, `bluetoothClaims` and `antClaims` let a test assert cleanup. `reset()` returns everything to defaults and stays reusable; `close()` is terminal.
+
+## Emulator tests
+
+Create a tiny app module with `applicationId io.hammerhead.appstore` that depends on the appstore artifact, and run your instrumentation tests there. karoo-ext's `KarooSystemService` binds `io.hammerhead.appstore.service.AppStoreService` by name, so the fake answers in place of the real system app:
 
 ```kotlin
 // app/build.gradle.kts
@@ -150,10 +144,7 @@ dependencies {
 }
 ```
 
-Scope the stand-in to the debug variant and keep the release variant out of the fixture; a single `implementation` line is not a guard on its own.
-
-Your extension app's debug manifest also needs to see that package, or its bind to
-`ComponentName("io.hammerhead.appstore", "io.hammerhead.appstore.service.AppStoreService")` is filtered out:
+Scope the stand-in to the debug variant and keep the release variant out of the fixture; a single `implementation` line is not a guard on its own. Your extension app's debug manifest also needs to see that package, or its bind is filtered out:
 
 ```xml
 <queries>
@@ -161,55 +152,20 @@ Your extension app's debug manifest also needs to see that package, or its bind 
 </queries>
 ```
 
-Connected tests install on every attached device. Never run them with a real Karoo or phone attached: the fake
-claims the Karoo system app's package name, and the tests would install and run there too. Pin the target emulator with
-both `ANDROID_SERIAL` and `-Pandroid.injected.device.serial=<serial>`: the AGP device filter is what selects the device
-for the test task, and the environment variable alone is not enough when several devices are attached.
+Connected tests install on every attached device. Never run them with a real Karoo or phone attached: the fake claims the Karoo system app's package name, and the tests would install and run there too. Pin the target emulator with both `ANDROID_SERIAL` and `-Pandroid.injected.device.serial=<serial>`: the AGP device filter is what selects the device for the test task, and the environment variable alone is not enough when several devices are attached.
 
 `FakeKaroo.system` is process-wide: call `FakeKaroo.system.reset()` before and after each test and never `close()` it, or later tests in the same process bind to a dead fake. The [testing guide](docs/testing-guide.md) has a template.
 
-## Coverage and static analysis
+## Documentation
 
-CI uploads JaCoCo coverage and JUnit results to [Codecov](https://codecov.io/gh/nikosavola/karoo-ext-testing). The `SonarQube` workflow runs [SonarQube Cloud](https://sonarcloud.io/summary/new_code?id=nikosavola_karoo-ext-testing) analysis. Both need one-time setup:
+- [Testing guide](docs/testing-guide.md): recipes for binding a real extension service, driving sensor streams, HTTP sequences and failure paths, BLE devices, FIT, device and bonus outputs, cleanup assertions and time.
+- [API reference](https://nikosavola.github.io/karoo-ext-testing/): Dokka HTML for all three modules.
+- [Maintaining](docs/maintaining.md): local workflow, one-time repository setup and releasing.
 
-- Import the repository through the services' GitHub integrations, granting the SonarQube Cloud GitHub App access for PR decoration. Use project key `nikosavola_karoo-ext-testing` and organization `nikosavola`.
-- Add `CODECOV_TOKEN` and `SONAR_TOKEN` repository secrets, and disable SonarQube Cloud automatic analysis so Gradle CI handles it.
-- Once Codecov is active, set `fail_ci_if_error: true` on the upload steps to catch upload failures.
+## Contributing
 
-During setup, Codecov uploads use `fail_ci_if_error: false`, and SonarQube analysis skips when `SONAR_TOKEN` is unset.
+Issues and pull requests are welcome; start with [CONTRIBUTING](.github/CONTRIBUTING.md). Please follow the [code of conduct](.github/CODE_OF_CONDUCT.md), and report vulnerabilities as described in the [security policy](.github/SECURITY.md). The project can be supported through [Liberapay](https://liberapay.com/nikosavola).
 
-## Local development
+## License
 
-JDK 21 is required. The `justfile` at the repo root wraps the common contributor commands; run `just` to list them.
-
-- `just verify` runs `lintAll`, `build`, `test`, `selfTest` and `:dokkaGeneratePublicationHtml`, the same set the CI workflow checks.
-- `just self-test` runs only the fakes' own debug unit tests and writes JaCoCo coverage to `*/build/reports/coverage/test/debug`. There is no coverage threshold: the reports show which fake paths a test actually exercises.
-- `just integration-build` assembles the separate-process fixture and its instrumentation APKs without installing them.
-- `just integration-test emulator-5554` runs the smoke tests on an explicit serial, after checking it is a dedicated `karoo-library-smoke-*` AVD. See the testing guide's test strategy section for choosing a layer.
-- `just docs` builds the Dokka API site into `build/dokka/html`.
-- `just docs-serve` builds the site and serves it on [http://127.0.0.1:8000](http://127.0.0.1:8000) from `build/dokka/html` using Python 3's `http.server`; override the port with `just docs-serve 9000` and stop it with Ctrl-C.
-- API styling lives in `docs/styles/alpine.css`, applied by Dokka through the root `customStyleSheets`, so `just docs` and the Pages build pick it up with no extra step.
-- Public KDoc links to compiler-checked samples in `testing/src/test/kotlin/fi/nikosavola/karooext/testing/samples/ApiSamples.kt` with `@sample`. They are snippets, not tests, but they must still compile: `:dokkaGeneratePublicationHtml` depends on the testing unit-test compilation so a broken sample fails the docs build.
-- `just lint`, `just test` and `just build` run `lintAll`, `test` and `build` on their own.
-
-Without `just`, the Gradle wrapper equivalents:
-
-```bash
-./gradlew lintAll build test selfTest :dokkaGeneratePublicationHtml  # full CI gate
-./gradlew selfTest  # fakes' own tests + coverage
-./gradlew :dokkaGeneratePublicationHtml  # API site into build/dokka/html
-```
-
-Test the library against your extension before releasing, without publishing:
-
-```kotlin
-// settings.gradle.kts
-includeBuild("../karoo-ext-testing") {
-  dependencySubstitution {
-    substitute(module("com.github.nikosavola.karoo-ext-testing:karoo-ext-testing"))
-      .using(project(":testing"))
-  }
-}
-```
-
-Substitute the other two modules the same way if you use them.
+[Apache License 2.0](LICENSE).
