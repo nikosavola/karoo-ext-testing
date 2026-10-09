@@ -16,21 +16,37 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The SDK install overlaps the checkout and JDK setup; wait before Gradle needs it.
+      - name: Set up Android SDK
+        id: sdk
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        background: true
+        with:
+          packages: 'platforms;android-37.0 build-tools;36.1.0'
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up toolchain
-        uses: ./.github/actions/setup
-      - name: Lint Kotlin
-        run: ./gradlew lintAll --no-daemon
-      # Sonar reads the JSON report; the same version as the prek hook.
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: gradle
+      # Sonar reads the JSON report; the same version as the prek hook. Runs next to Gradle.
       - name: Lint workflows
-        if: ${{ !cancelled() }}
+        id: actionlint
+        background: true
         run: |
           mkdir -p build/reports
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           "$(go env GOPATH)/bin/actionlint" -format '{{json .}}' > build/reports/actionlint.json
+      - name: Wait for Android SDK
+        wait: sdk
+      - name: Lint Kotlin
+        run: ./gradlew lintAll --no-daemon
+      - name: Wait for workflow lint
+        wait: actionlint
       - name: Upload lint reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -48,36 +64,49 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The SDK install overlaps the checkout and JDK setup; wait before Gradle needs it.
+      - name: Set up Android SDK
+        id: sdk
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        background: true
+        with:
+          packages: 'platforms;android-37.0 build-tools;36.1.0'
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up toolchain
-        uses: ./.github/actions/setup
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: gradle
+      - name: Wait for Android SDK
+        wait: sdk
+      # Includes the publishing rehearsal: the same publications as a release, into a scratch
+      # directory, so breakage shows before a tag.
       - name: Build
         env:
           DOC_REF: ${{ github.sha }}
-        run: ./gradlew assemble compileDebugUnitTestSources :dokkaGeneratePublicationHtml -PdocumentationRef="$DOC_REF" --no-daemon
-      # Test and Sonar start from these outputs instead of compiling again.
-      - name: Upload build outputs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: build-outputs
-          path: |
-            */build
-            .gradle
-          include-hidden-files: true
-          retention-days: 1
-      - name: Upload docs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: docs
-          path: build/dokka/html
-          retention-days: 7
-      # Same publications as a release, into a scratch directory, so breakage shows before a tag.
-      - name: Rehearse publishing
         run: >-
-          ./gradlew publishToMavenLocal publishAllPublicationsToGitHubPackagesRepository -PgithubPackagesUrl="file://$RUNNER_TEMP/maven" --no-daemon
+          ./gradlew assemble compileDebugUnitTestSources :dokkaGeneratePublicationHtml publishToMavenLocal publishAllPublicationsToGitHubPackagesRepository -PdocumentationRef="$DOC_REF" -PgithubPackagesUrl="file://$RUNNER_TEMP/maven" --no-daemon
+      - parallel:
+          # Test and Sonar start from these outputs instead of compiling again.
+          - name: Upload build outputs
+            uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+            with:
+              name: build-outputs
+              path: |
+                */build
+                .gradle
+              include-hidden-files: true
+              retention-days: 1
+          - name: Upload docs
+            uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+            with:
+              name: docs
+              path: build/dokka/html
+              retention-days: 7
   test:
     name: Test
     needs: build
@@ -85,44 +114,60 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The SDK install overlaps the checkout and JDK setup; wait before Gradle needs it.
+      - name: Set up Android SDK
+        id: sdk
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        background: true
+        with:
+          packages: 'platforms;android-37.0 build-tools;36.1.0'
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up toolchain
-        uses: ./.github/actions/setup
-      - name: Download build outputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: build-outputs
+      # Checkout cleans the workspace, so the download has to come after it.
+      - parallel:
+          - name: Set up JDK 21
+            uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+            with:
+              java-version: '21'
+              distribution: temurin
+              cache: gradle
+          - name: Download build outputs
+            uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+            with:
+              name: build-outputs
+      - name: Wait for Android SDK
+        wait: sdk
       - name: Test
         run: ./gradlew selfTest test --no-daemon
-      - name: Upload coverage to Codecov
-        if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: testing/build/reports/coverage/test/debug/report.xml,robolectric/build/reports/coverage/test/debug/report.xml,appstore/build/reports/coverage/test/debug/report.xml
-          disable_search: true
-          fail_ci_if_error: false
-      - name: Upload test results to Codecov
-        if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: testing/build/test-results/testDebugUnitTest/TEST-*.xml,robolectric/build/test-results/testDebugUnitTest/TEST-*.xml,appstore/build/test-results/testDebugUnitTest/TEST-*.xml
-          disable_search: true
-          fail_ci_if_error: false
-      - name: Upload test reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: test-reports
-          path: |
-            */build/reports/tests
-            */build/reports/coverage
-            */build/test-results
-          retention-days: 7
+      - parallel:
+          - name: Upload coverage to Codecov
+            if: ${{ !cancelled() }}
+            uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+            with:
+              token: ${{ secrets.CODECOV_TOKEN }}
+              files: testing/build/reports/coverage/test/debug/report.xml,robolectric/build/reports/coverage/test/debug/report.xml,appstore/build/reports/coverage/test/debug/report.xml
+              disable_search: true
+              fail_ci_if_error: false
+          - name: Upload test results to Codecov
+            if: ${{ !cancelled() }}
+            uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+            with:
+              token: ${{ secrets.CODECOV_TOKEN }}
+              files: testing/build/test-results/testDebugUnitTest/TEST-*.xml,robolectric/build/test-results/testDebugUnitTest/TEST-*.xml,appstore/build/test-results/testDebugUnitTest/TEST-*.xml
+              disable_search: true
+              fail_ci_if_error: false
+          - name: Upload test reports
+            if: ${{ !cancelled() }}
+            uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+            with:
+              name: test-reports
+              path: |
+                */build/reports/tests
+                */build/reports/coverage
+                */build/test-results
+              retention-days: 7
   smoke:
     name: Smoke
     runs-on: ubuntu-latest
@@ -130,19 +175,36 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The SDK install overlaps the checkout and JDK setup; wait before Gradle needs it.
+      - name: Set up Android SDK
+        id: sdk
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        background: true
+        with:
+          packages: 'platforms;android-37.0 build-tools;36.1.0'
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up toolchain
-        uses: ./.github/actions/setup
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: gradle
       # The emulator needs /dev/kvm; the runner user is not in the kvm group by default.
       - name: Enable KVM
+        id: kvm
+        background: true
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Wait for Android SDK
+        wait: sdk
+      - name: Wait for KVM
+        wait: kvm
       - name: Run smoke tests on API 31
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env:
@@ -177,25 +239,39 @@ jobs:
       # A fork PR gets no secret here, so the analysis step is skipped instead of failing.
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
+      # The SDK install overlaps the checkout and JDK setup; wait before Gradle needs it.
+      - name: Set up Android SDK
+        id: sdk
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        background: true
+        with:
+          packages: 'platforms;android-37.0 build-tools;36.1.0'
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Shallow clones hurt blame-based issue attribution.
           fetch-depth: 0
-      - name: Set up toolchain
-        uses: ./.github/actions/setup
-      - name: Cache Sonar packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar
-          restore-keys: ${{ runner.os }}-sonar
-      - name: Download reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: '{build-outputs,lint-reports,test-reports}'
-          merge-multiple: true
+      - parallel:
+          - name: Set up JDK 21
+            uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+            with:
+              java-version: '21'
+              distribution: temurin
+              cache: gradle
+          - name: Cache Sonar packages
+            uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+            with:
+              path: ~/.sonar/cache
+              key: ${{ runner.os }}-sonar
+              restore-keys: ${{ runner.os }}-sonar
+          - name: Download reports
+            uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+            with:
+              pattern: '{build-outputs,lint-reports,test-reports}'
+              merge-multiple: true
+      - name: Wait for Android SDK
+        wait: sdk
       - name: Analyze
         if: ${{ env.SONAR_TOKEN != '' }}
         run: ./gradlew sonar -x selfTest --no-daemon

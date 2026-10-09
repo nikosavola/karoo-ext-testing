@@ -1,0 +1,7 @@
+# actionlint 1.7.12 predates background, wait and parallel steps (June 2026). Drop these when a
+# release learns them.
+paths:
+  .github/workflows/**/*.yml:
+    ignore:
+      - 'unexpected key "background" for step to .+'
+      - 'step must run script with "run" section or run action with "uses" section'

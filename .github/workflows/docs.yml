@@ -16,12 +16,24 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The SDK install overlaps the checkout and JDK setup; wait before Gradle needs it.
+      - name: Set up Android SDK
+        id: sdk
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        background: true
+        with:
+          packages: 'platforms;android-37.0 build-tools;36.1.0'
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up toolchain
-        uses: ./.github/actions/setup
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: temurin
+      - name: Wait for Android SDK
+        wait: sdk
       # Passed through the environment; interpolating it into the script would be unsafe.
       - name: Build Dokka HTML
         env:
