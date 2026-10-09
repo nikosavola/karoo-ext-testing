@@ -91,6 +91,35 @@ allprojects {
 // Docs embed KDoc @sample snippets from the testing unit-test source set, so compile them first.
 tasks.named("dokkaGeneratePublicationHtml") { dependsOn(":testing:compileDebugUnitTestKotlin") }
 
+// llms.txt and the markdown it links to are served next to the Dokka HTML, so LLM tools get them
+// without parsing the site.
+val llmsDocs by tasks.registering {
+  val site = layout.buildDirectory.dir("dokka/html")
+  val docs = layout.projectDirectory.dir("docs")
+  val readme = layout.projectDirectory.file("README.md")
+  inputs.dir(docs)
+  inputs.file(readme)
+  outputs.dir(site)
+  doLast {
+    val out = site.get().asFile
+    val guide = docs.file("testing-guide.md").asFile
+    val modules = listOf("robolectric", "appstore").map { docs.file("module-docs/$it.md").asFile }
+    docs.file("llms.txt").asFile.copyTo(out.resolve("llms.txt"), overwrite = true)
+    guide.copyTo(out.resolve("testing-guide.md"), overwrite = true)
+    modules.forEach { it.copyTo(out.resolve(it.name), overwrite = true) }
+    val repo = "https://github.com/nikosavola/karoo-ext-testing/blob/main/"
+    // Relative README links would dangle once the file is served from the site root.
+    val readmeText =
+      readme.asFile.readText().replace(Regex("""\]\((docs/|\.github/|LICENSE)""")) {
+        "](" + repo + it.groupValues[0].drop(2)
+      }
+    val parts = listOf(readmeText) + (listOf(guide) + modules).map { it.readText() }
+    out.resolve("llms-full.txt").writeText(parts.joinToString("\n\n") { it.trimEnd() } + "\n")
+  }
+}
+
+tasks.named("dokkaGeneratePublicationHtml") { finalizedBy(llmsDocs) }
+
 dependencies {
   dokka(project(":testing"))
   dokka(project(":robolectric"))
