@@ -4,13 +4,14 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 permissions: {}
 jobs:
-  verify:
-    name: Lint, build and test
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,20 +20,83 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up JDK 21
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - name: Set up toolchain
+        uses: ./.github/actions/setup
+      - name: Lint Kotlin
+        run: ./gradlew lintAll --no-daemon
+      # Sonar reads the JSON report; the same version as the prek hook.
+      - name: Lint workflows
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p build/reports
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -format '{{json .}}' > build/reports/actionlint.json
+      - name: Upload lint reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          java-version: '21'
-          distribution: temurin
-          cache: gradle
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+          name: lint-reports
+          path: |
+            build/reports/actionlint.json
+            */build/reports/lint-results-debug.xml
+            */build/reports/detekt/detekt.xml
+            */build/reports/ktlint/**/*.xml
+          retention-days: 7
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          packages: 'platforms;android-37.0 build-tools;36.1.0'
-      - name: Lint, build and test
+          persist-credentials: false
+      - name: Set up toolchain
+        uses: ./.github/actions/setup
+      - name: Build
         env:
           DOC_REF: ${{ github.sha }}
-        run: ./gradlew lintAll build test selfTest :dokkaGeneratePublicationHtml -PdocumentationRef="$DOC_REF" --no-daemon
+        run: ./gradlew assemble compileDebugUnitTestSources :dokkaGeneratePublicationHtml -PdocumentationRef="$DOC_REF" --no-daemon
+      # Test and Sonar start from these outputs instead of compiling again.
+      - name: Upload build outputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-outputs
+          path: |
+            */build
+            .gradle
+          include-hidden-files: true
+          retention-days: 1
+      - name: Upload docs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docs
+          path: build/dokka/html
+          retention-days: 7
+      # Same publications as a release, into a scratch directory, so breakage shows before a tag.
+      - name: Rehearse publishing
+        run: >-
+          ./gradlew publishToMavenLocal publishAllPublicationsToGitHubPackagesRepository -PgithubPackagesUrl="file://$RUNNER_TEMP/maven" --no-daemon
+  test:
+    name: Test
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up toolchain
+        uses: ./.github/actions/setup
+      - name: Download build outputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: build-outputs
+      - name: Test
+        run: ./gradlew selfTest test --no-daemon
       - name: Upload coverage to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -49,15 +113,89 @@ jobs:
           files: testing/build/test-results/testDebugUnitTest/TEST-*.xml,robolectric/build/test-results/testDebugUnitTest/TEST-*.xml,appstore/build/test-results/testDebugUnitTest/TEST-*.xml
           disable_search: true
           fail_ci_if_error: false
-      # Same publications as a release, into a scratch directory, so breakage shows before a tag.
-      - name: Rehearse publishing
-        run: >-
-          ./gradlew publishToMavenLocal publishAllPublicationsToGitHubPackagesRepository -PgithubPackagesUrl="file://$RUNNER_TEMP/maven" --no-daemon
-      - name: Upload reports
+      - name: Upload test reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: reports
+          name: test-reports
           path: |
-            */build/reports/
-            build/dokka/html
+            */build/reports/tests
+            */build/reports/coverage
+            */build/test-results
+          retention-days: 7
+  smoke:
+    name: Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up toolchain
+        uses: ./.github/actions/setup
+      # The emulator needs /dev/kvm; the runner user is not in the kvm group by default.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run smoke tests on API 31
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          ANDROID_SERIAL: emulator-5554
+        with:
+          api-level: 31
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          avd-name: karoo-library-smoke-api31
+          emulator-port: 5554
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
+          script: >-
+            ./gradlew :integration-test-app:connectedDebugAndroidTest -Pandroid.injected.device.serial=emulator-5554 --no-daemon
+      - name: Upload smoke reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-reports
+          path: |
+            integration-test-app/build/reports/androidTests
+            integration-test-app/build/outputs/androidTest-results
+          retention-days: 7
+  sonar:
+    name: Sonar
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # A fork PR gets no secret here, so the analysis step is skipped instead of failing.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Shallow clones hurt blame-based issue attribution.
+          fetch-depth: 0
+      - name: Set up toolchain
+        uses: ./.github/actions/setup
+      - name: Cache Sonar packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+      - name: Download reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: '{build-outputs,lint-reports,test-reports}'
+          merge-multiple: true
+      - name: Analyze
+        if: ${{ env.SONAR_TOKEN != '' }}
+        run: ./gradlew sonar -x selfTest --no-daemon
