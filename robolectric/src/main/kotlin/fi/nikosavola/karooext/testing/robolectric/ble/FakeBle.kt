@@ -85,7 +85,9 @@ class FakeBle(private val app: Application) {
     val state = if (on) BluetoothAdapter.STATE_ON else BluetoothAdapter.STATE_OFF
     shadowOf(adapter).setState(state)
     app.sendBroadcast(
-      Intent(BluetoothAdapter.ACTION_STATE_CHANGED).putExtra(BluetoothAdapter.EXTRA_STATE, state)
+      Intent(BluetoothAdapter.ACTION_STATE_CHANGED)
+        .setPackage(app.packageName)
+        .putExtra(BluetoothAdapter.EXTRA_STATE, state)
     )
     RobolectricPump.pumpMainLooper()
   }
