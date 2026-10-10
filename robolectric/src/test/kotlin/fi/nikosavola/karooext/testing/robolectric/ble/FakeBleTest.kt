@@ -33,6 +33,7 @@ private val CUSTOM_SERVICE = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca
 private val INDICATED = bleUuid(0x2A35)
 private val QUIET_WRITE = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
 private const val ADDRESS = "AA:BB:CC:DD:EE:01"
+private const val WRITE_ROUNDS = 300
 
 private fun wait(probe: () -> Boolean) {
   awaitValue(2_000, RobolectricPump::pumpMainLooper) { true.takeIf { probe() } }
@@ -148,6 +149,23 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
 
     wait { client.notifications.isNotEmpty() }
     assertEquals(listOf(listOf<Byte>(5, 99)), client.notifications)
+  }
+
+  @Test
+  fun `a write is acknowledged before the reply its handler sends`() {
+    client.connect(ADDRESS)
+    band.connect()
+    wait { client.discovered.isNotEmpty() }
+    client.subscribe(MEASUREMENT)
+    band.awaitSubscribed(MEASUREMENT)
+    band.onWrite(CONTROL) { band.notify(MEASUREMENT, byteArrayOf(1)) }
+
+    repeat(WRITE_ROUNDS) { round ->
+      client.write(CONTROL, byteArrayOf(1))
+      wait { client.notifications.size == round + 1 }
+    }
+
+    assertEquals(List(WRITE_ROUNDS) { listOf("write", "notify") }.flatten(), client.order)
   }
 
   @Test

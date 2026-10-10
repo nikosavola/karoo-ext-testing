@@ -13,8 +13,9 @@ import android.os.Looper
  * subscriptions, then forwards every call unchanged. Both the pre-33 and the API 33 variants are
  * forwarded as themselves, because the framework defaults chain them in one direction only, and
  * posted to the main looper, so they arrive after the extension's call returned, as from a device.
- * Writes and subscriptions are recorded before the post. This runs on the JVM and Robolectric picks
- * the variant for the emulated SDK, so a call to a newer variant only happens when that SDK has it.
+ * Subscriptions are recorded before the post, writes right after it. This runs on the JVM and
+ * Robolectric picks the variant for the emulated SDK, so a call to a newer variant only happens
+ * when that SDK has it.
  */
 @SuppressLint("NewApi")
 @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION", "TooManyFunctions")
@@ -60,8 +61,10 @@ internal class GattCallbackTap(
     characteristic: BluetoothGattCharacteristic,
     status: Int,
   ) {
-    peripheral.recordWrite(characteristic)
+    // Post first: recording starts the reply handler on another thread, and its reply must not
+    // overtake the acknowledgement of the write it answers.
     post { delegate?.onCharacteristicWrite(gatt, characteristic, status) }
+    peripheral.recordWrite(characteristic)
   }
 
   override fun onCharacteristicChanged(
