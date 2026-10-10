@@ -27,6 +27,7 @@ class BleClient(private val app: Application, newStyle: Boolean) {
   val notifications = CopyOnWriteArrayList<List<Byte>>()
   val reads = CopyOnWriteArrayList<List<Byte>>()
   val discovered = CopyOnWriteArrayList<UUID>()
+  val order = CopyOnWriteArrayList<String>()
 
   @Volatile var gatt: BluetoothGatt? = null
 
@@ -112,6 +113,7 @@ class BleClient(private val app: Application, newStyle: Boolean) {
       characteristic: BluetoothGattCharacteristic,
     ) {
       notifications += characteristic.value.toList()
+      order += "notify"
     }
 
     override fun onCharacteristicRead(
@@ -120,6 +122,14 @@ class BleClient(private val app: Application, newStyle: Boolean) {
       status: Int,
     ) {
       reads += characteristic.value.toList()
+    }
+
+    override fun onCharacteristicWrite(
+      gatt: BluetoothGatt,
+      characteristic: BluetoothGattCharacteristic,
+      status: Int,
+    ) {
+      order += "write"
     }
   }
 
@@ -140,6 +150,7 @@ class BleClient(private val app: Application, newStyle: Boolean) {
       value: ByteArray,
     ) {
       notifications += value.toList()
+      order += "notify"
     }
 
     override fun onCharacteristicRead(
@@ -149,6 +160,14 @@ class BleClient(private val app: Application, newStyle: Boolean) {
       status: Int,
     ) {
       reads += value.toList()
+    }
+
+    override fun onCharacteristicWrite(
+      gatt: BluetoothGatt,
+      characteristic: BluetoothGattCharacteristic,
+      status: Int,
+    ) {
+      order += "write"
     }
   }
 
