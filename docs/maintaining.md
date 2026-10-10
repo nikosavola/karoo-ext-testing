@@ -35,7 +35,7 @@ includeBuild("../karoo-ext-testing") {
 }
 ```
 
-Substitute the other two modules the same way if you use them. `./gradlew publishToMavenLocal` puts `0.1.0` (from `gradle.properties`) into `mavenLocal()` for a quick local trial.
+Substitute the other two modules the same way if you use them. `./gradlew publishToMavenLocal` puts `0.1.1` (from `gradle.properties`) into `mavenLocal()` for a quick local trial.
 
 ## One-time repository setup
 
