@@ -9,7 +9,9 @@ import io.hammerhead.karooext.models.ShowSymbols
 import io.hammerhead.karooext.models.Symbol
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -26,6 +28,8 @@ class TypedWaitTest {
 
   private class ShapeRecorder(pump: () -> Unit = {}) : Recorder<Shape>("shapes", pump) {
     fun emit(item: Shape) = record(item)
+
+    fun failWith(message: String) = fail(message)
   }
 
   private fun line(id: String) = ShowPolyline(id, encodePolyline(listOf(1.0 to 2.0)), 0, 4)
@@ -58,6 +62,55 @@ class TypedWaitTest {
     assertThrows(IllegalStateException::class.java) {
       recorder.awaitQuiet(quietMs = 500, timeoutMs = 200)
     }
+  }
+
+  @Test
+  fun `await reports a timeout as AwaitTimeoutException`() {
+    val recorder = ShapeRecorder()
+    assertThrows(AwaitTimeoutException::class.java) { recorder.await(50) { false } }
+  }
+
+  @Test
+  fun `await reports a terminal failure as a plain IllegalStateException`() {
+    val recorder = ShapeRecorder()
+    recorder.failWith("stream dropped")
+
+    val failure = assertThrows(IllegalStateException::class.java) { recorder.await(50) { false } }
+
+    assertFalse(failure is AwaitTimeoutException)
+    assertTrue(failure.message!!.contains("stream dropped"))
+  }
+
+  @Test
+  fun `assertNoItem fails for an item already recorded when after is 0`() {
+    val recorder = ShapeRecorder()
+    recorder.emit(Circle(7))
+
+    assertThrows(AssertionError::class.java) { recorder.assertNoItem(50, after = 0) }
+  }
+
+  @Test
+  fun `assertNoItem fails when a matching item arrives during the wait`() {
+    lateinit var recorder: ShapeRecorder
+    recorder = ShapeRecorder { recorder.emit(Circle(1)) }
+
+    assertThrows(AssertionError::class.java) { recorder.assertNoItem(500) }
+  }
+
+  @Test
+  fun `assertNoItem passes when only non-matching items arrive`() {
+    lateinit var recorder: ShapeRecorder
+    recorder = ShapeRecorder { recorder.emit(Square()) }
+
+    recorder.assertNoItem(100) { it is Circle }
+  }
+
+  @Test
+  fun `assertNoItem ignores items recorded before the call by default`() {
+    val recorder = ShapeRecorder()
+    recorder.emit(Circle(1))
+
+    recorder.assertNoItem(50) { it is Circle }
   }
 
   @Test
