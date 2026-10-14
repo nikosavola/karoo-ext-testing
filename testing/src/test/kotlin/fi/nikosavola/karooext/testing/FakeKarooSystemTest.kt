@@ -2,6 +2,7 @@ package fi.nikosavola.karooext.testing
 
 import android.os.Bundle
 import android.os.RemoteException
+import io.hammerhead.karooext.BUNDLE_VALUE
 import io.hammerhead.karooext.EXT_LIB_VERSION
 import io.hammerhead.karooext.aidl.IHandler
 import io.hammerhead.karooext.internal.bundleWithSerializable
@@ -526,6 +527,27 @@ class FakeKarooSystemTest {
     // Fake policy: the SDK itself would drop-and-log a bad payload.
     assertEquals(listOf("Unreadable params"), handler.errors.toList())
     assertEquals(0, system.consumerCount)
+  }
+
+  @Test
+  fun `a malformed params bundle reports onError and registers nothing`() {
+    val system = track(FakeKarooSystem())
+    val handler = CapturingHandler()
+    val broken = Bundle().apply { putString(BUNDLE_VALUE, "{not json") }
+
+    system.addEventConsumer("bad", broken, handler)
+
+    assertEquals(listOf("Unreadable params"), handler.errors.toList())
+    assertEquals(0, system.consumerCount)
+  }
+
+  @Test
+  fun `a malformed effect bundle is ignored`() {
+    val system = track(FakeKarooSystem())
+
+    system.dispatchEffect(Bundle().apply { putString(BUNDLE_VALUE, "{not json") })
+
+    assertEquals(0, system.effects.size)
   }
 
   @Test

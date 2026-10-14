@@ -106,6 +106,23 @@ abstract class FakeBleCase(private val newStyle: Boolean) {
   }
 
   @Test
+  fun `notifications sent back to back keep their own bytes`() {
+    client.connect(ADDRESS)
+    band.connect()
+    wait { client.discovered.isNotEmpty() }
+    client.subscribe(MEASUREMENT)
+    band.awaitSubscribed(MEASUREMENT)
+
+    // Both posts land on the main looper before either runs, so the delegate reads the value of a
+    // characteristic that the second notify has already overwritten.
+    band.notify(MEASUREMENT, byteArrayOf(1))
+    band.notify(MEASUREMENT, byteArrayOf(2))
+
+    wait { client.notifications.size == 2 }
+    assertEquals(listOf(listOf<Byte>(1), listOf<Byte>(2)), client.notifications)
+  }
+
+  @Test
   fun `notifying before the client subscribes is an error`() {
     client.connect(ADDRESS)
     band.connect()

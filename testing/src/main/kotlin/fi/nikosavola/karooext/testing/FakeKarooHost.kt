@@ -367,8 +367,8 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
    * coroutine virtual time, and `pump` runs between polls.
    *
    * @throws IllegalArgumentException if [timeoutMs] or [after] is negative.
-   * @throws IllegalStateException on timeout, or when an error or completion arrives before a
-   *   matching item.
+   * @throws AwaitTimeoutException if no matching item arrives before the timeout.
+   * @throws IllegalStateException when an error or completion arrives before a matching item.
    */
   fun await(timeoutMs: Long, after: Int = 0, predicate: (T) -> Boolean): T =
     awaitNanos(TimeUnit.MILLISECONDS.toNanos(timeoutMs), timeoutLabel(timeoutMs), after, predicate)
@@ -378,16 +378,73 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
    *
    * @throws IllegalArgumentException if [timeout] is not finite or negative, or [after] is
    *   negative.
-   * @throws IllegalStateException on timeout, or when an error or completion arrives before a
-   *   matching item.
+   * @throws AwaitTimeoutException if no matching item arrives before the timeout.
+   * @throws IllegalStateException when an error or completion arrives before a matching item.
    */
   fun await(timeout: Duration, after: Int = 0, predicate: (T) -> Boolean): T =
     awaitNanos(timeout.requireTimeoutNanos(), timeout.toString(), after, predicate)
 
   /**
+   * Fails if an item matching [predicate] is already recorded from index [after] on, or arrives
+   * within [timeoutMs]. The negative counterpart of [await], for "the extension must not emit this"
+   * assertions, which can only be shown by waiting. The default [after] is [mark], so only items
+   * recorded after the call can fail it. Unlike [await], a terminal error or completion does not
+   * fail the assertion: the claim is only that no matching item arrives. Real elapsed time, not
+   * Robolectric virtual time; `pump` runs between polls.
+   *
+   * @throws IllegalArgumentException if [timeoutMs] or [after] is negative.
+   * @throws AssertionError if a matching item is found.
+   */
+  fun assertNoItem(
+    timeoutMs: Long = 20_000,
+    after: Int = mark(),
+    predicate: (T) -> Boolean = { true },
+  ) {
+    assertNoItemNanos(
+      TimeUnit.MILLISECONDS.toNanos(timeoutMs),
+      timeoutLabel(timeoutMs),
+      after,
+      predicate,
+    )
+  }
+
+  /**
+   * [kotlin.time.Duration] overload of [assertNoItem]; positive sub-millisecond timeouts are kept.
+   *
+   * @throws IllegalArgumentException if [timeout] is not finite or negative, or [after] is
+   *   negative.
+   * @throws AssertionError if a matching item is found.
+   */
+  fun assertNoItem(timeout: Duration, after: Int = mark(), predicate: (T) -> Boolean = { true }) {
+    assertNoItemNanos(timeout.requireTimeoutNanos(), timeout.toString(), after, predicate)
+  }
+
+  private fun assertNoItemNanos(
+    timeoutNanos: Long,
+    display: String,
+    after: Int,
+    predicate: (T) -> Boolean,
+  ) {
+    require(after >= 0) { "after must be nonnegative, was $after" }
+    val start = TimeSource.Monotonic.markNow()
+    while (true) {
+      recorded.drop(after).firstOrNull(predicate)?.let {
+        throw AssertionError(
+          "expected no matching item within $display, got $it; recent ${recent()}"
+        )
+      }
+      val elapsed = start.elapsedNow().inWholeNanoseconds
+      if (elapsed >= timeoutNanos) return
+      val left = timeoutNanos - elapsed
+      pump()
+      lock.withLock { arrived.awaitNanos(minOf(left, POLL_NANOS)) }
+    }
+  }
+
+  /**
    * [await] for the first item of type [E] matching [predicate], returned as [E].
    *
-   * @throws IllegalStateException as [await] does.
+   * @throws AwaitTimeoutException or IllegalStateException as [await] does.
    */
   inline fun <reified E : T> awaitOf(
     timeoutMs: Long = 20_000,
@@ -400,7 +457,7 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
    * with no end marker, then returns everything recorded. Real elapsed time.
    *
    * @throws IllegalArgumentException if [quietMs] is not positive or [timeoutMs] is negative.
-   * @throws IllegalStateException if items keep arriving for [timeoutMs].
+   * @throws AwaitTimeoutException if items keep arriving for [timeoutMs].
    */
   fun awaitQuiet(quietMs: Long, timeoutMs: Long): List<T> {
     require(quietMs > 0) { "quietMs must be positive, was $quietMs" }
@@ -410,8 +467,8 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
     var size = recorded.size
     var since = TimeSource.Monotonic.markNow()
     while (since.elapsedNow().inWholeNanoseconds < quietNanos) {
-      check(!deadline.hasPassedNow()) {
-        timeoutMessage("${timeoutMs}ms", "$quietMs ms without items")
+      if (deadline.hasPassedNow()) {
+        throw AwaitTimeoutException(timeoutMessage("${timeoutMs}ms", "$quietMs ms without items"))
       }
       pump()
       lock.withLock { arrived.awaitNanos(POLL_NANOS) }
@@ -429,7 +486,8 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
    * The error is checked once as the wait returns, so it does not promise to catch an error that
    * lands after completion during a live wait. Real elapsed time.
    *
-   * @throws IllegalStateException on timeout, or when an error is present at observation.
+   * @throws AwaitTimeoutException on timeout.
+   * @throws IllegalStateException when an error is present at observation.
    */
   fun awaitComplete(timeoutMs: Long) =
     awaitCompleteNanos(TimeUnit.MILLISECONDS.toNanos(timeoutMs), timeoutLabel(timeoutMs))
@@ -438,7 +496,8 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
    * [kotlin.time.Duration] overload of [awaitComplete]; positive sub-millisecond timeouts kept.
    *
    * @throws IllegalArgumentException if [timeout] is not finite or negative.
-   * @throws IllegalStateException on timeout, or when an error is present at observation.
+   * @throws AwaitTimeoutException on timeout.
+   * @throws IllegalStateException when an error is present at observation.
    */
   fun awaitComplete(timeout: Duration) =
     awaitCompleteNanos(timeout.requireTimeoutNanos(), timeout.toString())
@@ -447,7 +506,8 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
    * Waits until an error or completion arrives and returns the last error message. Throws if
    * completion arrives with no error, and the last [fail] wins if several arrived.
    *
-   * @throws IllegalStateException on timeout, or when completion arrives with no error.
+   * @throws AwaitTimeoutException on timeout.
+   * @throws IllegalStateException when completion arrives with no error.
    */
   fun awaitError(timeoutMs: Long): String =
     awaitErrorNanos(TimeUnit.MILLISECONDS.toNanos(timeoutMs), timeoutLabel(timeoutMs))
@@ -456,7 +516,8 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
    * [kotlin.time.Duration] overload of [awaitError]; positive sub-millisecond timeouts kept.
    *
    * @throws IllegalArgumentException if [timeout] is not finite or negative.
-   * @throws IllegalStateException on timeout, or when completion arrives with no error.
+   * @throws AwaitTimeoutException on timeout.
+   * @throws IllegalStateException when completion arrives with no error.
    */
   fun awaitError(timeout: Duration): String =
     awaitErrorNanos(timeout.requireTimeoutNanos(), timeout.toString())
@@ -482,7 +543,9 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
       }
       terminal?.let { throw IllegalStateException(it) }
       val elapsed = start.elapsedNow().inWholeNanoseconds
-      check(elapsed < timeoutNanos) { timeoutMessage(display, "a matching item") }
+      if (elapsed >= timeoutNanos) {
+        throw AwaitTimeoutException(timeoutMessage(display, "a matching item"))
+      }
       val left = timeoutNanos - elapsed
       pump()
       lock.withLock { arrived.awaitNanos(minOf(left, POLL_NANOS)) }
@@ -490,15 +553,15 @@ open class Recorder<T>(val id: String, private val pump: () -> Unit) {
   }
 
   private fun awaitCompleteNanos(timeoutNanos: Long, display: String) {
-    check(waitUntil(timeoutNanos) { completed || error != null }) {
-      timeoutMessage(display, "completion")
+    if (!waitUntil(timeoutNanos) { completed || error != null }) {
+      throw AwaitTimeoutException(timeoutMessage(display, "completion"))
     }
     error?.let { throw IllegalStateException("error before completion: $it; got ${recent()}") }
   }
 
   private fun awaitErrorNanos(timeoutNanos: Long, display: String): String {
-    check(waitUntil(timeoutNanos) { error != null || completed }) {
-      timeoutMessage(display, "an error")
+    if (!waitUntil(timeoutNanos) { error != null || completed }) {
+      throw AwaitTimeoutException(timeoutMessage(display, "an error"))
     }
     return error ?: throw IllegalStateException("completed without an error; got ${recent()}")
   }

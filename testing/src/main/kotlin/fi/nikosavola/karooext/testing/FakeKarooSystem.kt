@@ -40,6 +40,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+import kotlinx.serialization.SerializationException
 
 /** Package of the Karoo system app the SDK binds to, mirrored by the appstore stand-in. */
 const val KAROO_SYSTEM_PACKAGE = "io.hammerhead.appstore"
@@ -244,9 +245,13 @@ class FakeKarooSystem(
   override fun info(): Bundle =
     KarooInfo(SERIAL, hardwareType).bundleWithSerializable(KAROO_SYSTEM_PACKAGE)
 
-  /** Records the `KarooEffect` in [bundle] into [effects]; an unreadable bundle is ignored. */
+  /**
+   * Records the `KarooEffect` in [bundle] into [effects]. A bundle with no value, or one whose
+   * value is malformed, is ignored: the SDK codec throws on malformed JSON, and letting that escape
+   * would abort the caller's binder call for a payload the fake should simply not read.
+   */
   override fun dispatchEffect(bundle: Bundle) {
-    bundle.serializableFromBundle<KarooEffect>()?.let(effects::add)
+    decode<KarooEffect>(bundle)?.let(effects::add)
   }
 
   /**
@@ -256,7 +261,7 @@ class FakeKarooSystem(
    * is sent the current sticky value immediately when one exists. Throws if the system is closed.
    */
   override fun addEventConsumer(id: String, params: Bundle, handler: IHandler) {
-    val parsed = params.serializableFromBundle<KarooEventParams>()
+    val parsed = decode<KarooEventParams>(params)
     lifecycleLock.withLock {
       // Registration, submit and close share the lock, so nothing is submitted after shutdown.
       checkOpen()
@@ -321,6 +326,15 @@ class FakeKarooSystem(
    */
   fun errorConsumer(id: String, message: String): Boolean =
     injectTerminal(id) { it.onError(message) }
+
+  // The SDK codec throws on a malformed value while the fake treats any unreadable bundle as
+  // absent, so a payload the SDK would reject cannot abort the caller's binder call.
+  private inline fun <reified T> decode(bundle: Bundle): T? =
+    try {
+      bundle.serializableFromBundle<T>()
+    } catch (_: SerializationException) {
+      null
+    }
 
   private fun injectTerminal(id: String, terminal: (IHandler) -> Unit): Boolean =
     lifecycleLock.withLock {

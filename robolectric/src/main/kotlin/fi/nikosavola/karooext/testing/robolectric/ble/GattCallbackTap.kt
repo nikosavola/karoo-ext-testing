@@ -44,7 +44,14 @@ internal class GattCallbackTap(
     characteristic: BluetoothGattCharacteristic,
     status: Int,
   ) {
-    post { delegate?.onCharacteristicRead(gatt, characteristic, status) }
+    // The pre-33 read carries no value argument, so the delegate reads characteristic.value when
+    // the posted call runs. Capture it now and put it back then, or a later setValue would rewrite
+    // what this read returned.
+    val value = characteristic.value?.copyOf()
+    post {
+      if (value != null) characteristic.setValue(value)
+      delegate?.onCharacteristicRead(gatt, characteristic, status)
+    }
   }
 
   override fun onCharacteristicRead(
@@ -53,7 +60,11 @@ internal class GattCallbackTap(
     value: ByteArray,
     status: Int,
   ) {
-    post { delegate?.onCharacteristicRead(gatt, characteristic, value, status) }
+    val copy = value.copyOf()
+    post {
+      characteristic.setValue(copy)
+      delegate?.onCharacteristicRead(gatt, characteristic, copy, status)
+    }
   }
 
   override fun onCharacteristicWrite(
@@ -71,7 +82,13 @@ internal class GattCallbackTap(
     gatt: BluetoothGatt,
     characteristic: BluetoothGattCharacteristic,
   ) {
-    post { delegate?.onCharacteristicChanged(gatt, characteristic) }
+    // As in the read above: without restoring the value, two notifications sent before the looper
+    // runs would both deliver the second one's bytes.
+    val value = characteristic.value?.copyOf()
+    post {
+      if (value != null) characteristic.setValue(value)
+      delegate?.onCharacteristicChanged(gatt, characteristic)
+    }
   }
 
   override fun onCharacteristicChanged(
@@ -79,7 +96,13 @@ internal class GattCallbackTap(
     characteristic: BluetoothGattCharacteristic,
     value: ByteArray,
   ) {
-    post { delegate?.onCharacteristicChanged(gatt, characteristic, value) }
+    // Restore the value too: a delegate that overrides only the pre-33 variant is reached through
+    // the framework's chaining default, which reads characteristic.value.
+    val copy = value.copyOf()
+    post {
+      characteristic.setValue(copy)
+      delegate?.onCharacteristicChanged(gatt, characteristic, copy)
+    }
   }
 
   override fun onDescriptorRead(
